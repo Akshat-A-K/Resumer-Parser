@@ -1,0 +1,63 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build and packaging artifacts
+build/
+dist/
+.eggs/
+*.egg-info/
+pip-wheel-metadata/
+
+# IDE/editor settings
+.vscode/
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Logs and runtime files
+*.log
+logs/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Local/tool state
+.sixth/
+
+# Generated tuning/training artifacts
+models/
+splits/train.jsonl
+splits/val.jsonl
+splits/test.jsonl
+splits/resume_unlabeled.txt
+api_tuning/Modelfile.resume
+
+# Common large binary artifacts
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.bin
+*.safetensors

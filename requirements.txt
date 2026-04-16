@@ -1,0 +1,13 @@
+streamlit
+pypdf
+pydantic
+google-generativeai
+groq
+python-dotenv
+pandas
+easyocr
+pillow
+numpy
+requests
+spacy
+spacy-lookups-data
