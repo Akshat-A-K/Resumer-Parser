@@ -22,7 +22,10 @@ from spacy.util import minibatch
 SEED = 42
 SPLIT_DIR = Path("splits")
 MODEL_DIR = Path("models/resume_ner")
-EPOCHS = int(os.getenv("FINETUNE_EPOCHS", "15"))
+EPOCHS = int(os.getenv("FINETUNE_EPOCHS", "30"))
+DROPOUT = float(os.getenv("FINETUNE_DROPOUT", "0.15"))
+BATCH_SIZE = int(os.getenv("FINETUNE_BATCH", "16"))
+PATIENCE = int(os.getenv("FINETUNE_PATIENCE", "6"))
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -128,13 +131,16 @@ def main() -> None:
             optimizer = nlp.resume_training()
 
         best_f1 = -1.0
+        stale_epochs = 0
         for epoch in range(EPOCHS):
             random.shuffle(train_rows)
             losses = {}
 
-            for batch_rows in minibatch(train_rows, size=8):
+            for batch_rows in minibatch(train_rows, size=BATCH_SIZE):
                 examples = make_examples(nlp, batch_rows)
-                nlp.update(examples, sgd=optimizer, losses=losses, drop=0.2)
+                if not examples:
+                    continue
+                nlp.update(examples, sgd=optimizer, losses=losses, drop=DROPOUT)
 
             p, r, f1 = evaluate_simple(nlp, val_rows)
             print(
@@ -144,9 +150,16 @@ def main() -> None:
 
             if f1 > best_f1:
                 best_f1 = f1
+                stale_epochs = 0
                 MODEL_DIR.mkdir(parents=True, exist_ok=True)
                 nlp.to_disk(MODEL_DIR)
                 print(f"Saved best model at epoch {epoch + 1:02d} (val_f1={f1:.4f})")
+            else:
+                stale_epochs += 1
+
+            if stale_epochs >= PATIENCE:
+                print(f"Early stopping at epoch {epoch + 1:02d} (no val_f1 improvement for {PATIENCE} epochs)")
+                break
 
     print(f"Model saved to: {MODEL_DIR}")
 

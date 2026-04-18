@@ -1,0 +1,95 @@
+{
+  "per_field": {
+    "graduation_year": {
+      "precision": 0.5227272727272727,
+      "recall": 0.5227272727272727,
+      "f1": 0.5227272727272727,
+      "exact_match": 0.5227272727272727,
+      "fuzzy_match": 0.5248251748251749,
+      "support": 104,
+      "total_samples": 220
+    },
+    "years_of_experience": {
+      "precision": 0.6534090909090909,
+      "recall": 0.6534090909090909,
+      "f1": 0.6534090909090909,
+      "exact_match": 0.65,
+      "fuzzy_match": 0.6543771043771044,
+      "support": 34,
+      "total_samples": 220
+    },
+    "email": {
+      "precision": 0.4,
+      "recall": 0.375,
+      "f1": 0.3833333333333333,
+      "exact_match": 0.35,
+      "fuzzy_match": 0.49536166481202104,
+      "support": 190,
+      "total_samples": 220
+    },
+    "location": {
+      "precision": 0.28142316017316016,
+      "recall": 0.5181818181818182,
+      "f1": 0.34527417027417023,
+      "exact_match": 0.1,
+      "fuzzy_match": 0.32992955196720225,
+      "support": 199,
+      "total_samples": 220
+    },
+    "name": {
+      "precision": 0.5,
+      "recall": 0.49772727272727274,
+      "f1": 0.49848484848484853,
+      "exact_match": 0.4909090909090909,
+      "fuzzy_match": 0.5027436930885206,
+      "support": 218,
+      "total_samples": 220
+    },
+    "college_name": {
+      "precision": 0.3715909090909091,
+      "recall": 0.37462121212121213,
+      "f1": 0.3620959595959596,
+      "jaccard": 0.3039772727272727,
+      "support": 194,
+      "total_samples": 220
+    },
+    "degree": {
+      "precision": 0.48409090909090907,
+      "recall": 0.45045454545454544,
+      "f1": 0.4600757575757576,
+      "jaccard": 0.4416666666666667,
+      "support": 192,
+      "total_samples": 220
+    },
+    "skills": {
+      "precision": 0.20686147186147186,
+      "recall": 0.21632110579479003,
+      "f1": 0.20541456018728746,
+      "jaccard": 0.18573773448773448,
+      "support": 183,
+      "total_samples": 220
+    },
+    "designation": {
+      "precision": 0.3043560606060606,
+      "recall": 0.2918181818181818,
+      "f1": 0.2909090909090909,
+      "jaccard": 0.2429292929292929,
+      "support": 202,
+      "total_samples": 220
+    },
+    "companies_worked_at": {
+      "precision": 0.31420454545454546,
+      "recall": 0.37348484848484853,
+      "f1": 0.3293434343434343,
+      "jaccard": 0.2821969696969697,
+      "support": 190,
+      "total_samples": 220
+    }
+  },
+  "macro_avg": {
+    "precision": 0.403866341991342,
+    "recall": 0.42737453482190324,
+    "f1": 0.4051067518340245
+  },
+  "num_samples": 220
+}

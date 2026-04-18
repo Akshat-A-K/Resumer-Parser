@@ -1,8 +1,6 @@
 streamlit
 pypdf
 pydantic
-google-generativeai
-groq
 python-dotenv
 pandas
 easyocr

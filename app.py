@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -49,6 +50,59 @@ def parse_list_input(value: str) -> list[str]:
     return [x.strip() for x in value.split(",") if x.strip()]
 
 
+def _selected_index(options: list[str], value: str) -> int:
+    return options.index(value) if value in options else 0
+
+
+def _find_ollama_cli() -> str | None:
+    found = shutil.which("ollama")
+    if found:
+        return found
+
+    candidates = [
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe",
+        Path("C:/Program Files/Ollama/ollama.exe"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
+@st.cache_data(ttl=60)
+def get_ollama_model_options(current_model: str) -> list[str]:
+    options: list[str] = ["llama3.2:3b", "resume-parser-local", current_model]
+    ollama_cli = _find_ollama_cli()
+
+    if ollama_cli:
+        try:
+            result = subprocess.run([ollama_cli, "list"], capture_output=True, text=True)
+            if result.returncode == 0:
+                lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+                for line in lines[1:]:
+                    model_name = line.split()[0]
+                    options.append(model_name)
+        except Exception:
+            pass
+
+    deduped = []
+    for item in options:
+        if item and item not in deduped:
+            deduped.append(item)
+    return deduped
+
+
+def model_option_label(model_name: str, provider_name: str) -> str:
+    name = (model_name or "").strip()
+    low = name.lower()
+
+    if provider_name == "ollama-local":
+        if "resume-parser" in low or "finetune" in low or "fine-tune" in low:
+            return f"{name}  (Recommended)"
+
+    return name
+
+
 with st.sidebar:
     st.header("Workflow")
     mode = st.radio(
@@ -59,34 +113,29 @@ with st.sidebar:
 
     st.markdown("---")
     st.header("Model Provider")
-    provider = st.selectbox("Provider", ["gemini", "groq", "ollama-local", "openai"], index=0)
-
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
-    groq_key = os.getenv("GROQ_API_KEY", "")
+    provider = "ollama-local"
     ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     ollama_model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
-    openai_key = os.getenv("OPENAI_API_KEY", "")
-    openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-    st.caption("Only the selected provider settings are shown by default.")
-    if provider == "gemini":
-        gemini_key = st.text_input("GEMINI_API_KEY", type="password", value=gemini_key)
-    elif provider == "groq":
-        groq_key = st.text_input("GROQ_API_KEY", type="password", value=groq_key)
-    elif provider == "ollama-local":
-        ollama_host = st.text_input("OLLAMA_HOST", value=ollama_host)
-        ollama_model = st.text_input("OLLAMA_MODEL", value=ollama_model)
-    elif provider == "openai":
-        openai_key = st.text_input("OPENAI_API_KEY", type="password", value=openai_key)
-        openai_model = st.text_input("OPENAI_MODEL", value=openai_model)
+    ollama_model_options = get_ollama_model_options(ollama_model)
+
+    st.caption("Local mode only (ollama-local).")
+    ollama_host = st.text_input("OLLAMA_HOST", value=ollama_host)
+    ollama_model = st.selectbox(
+        "OLLAMA_MODEL",
+        options=ollama_model_options,
+        index=_selected_index(ollama_model_options, ollama_model),
+        format_func=lambda m: model_option_label(m, "ollama-local"),
+    )
 
     with st.expander("Advanced provider settings", expanded=False):
-        gemini_key = st.text_input("GEMINI_API_KEY (advanced)", type="password", value=gemini_key)
-        groq_key = st.text_input("GROQ_API_KEY (advanced)", type="password", value=groq_key)
         ollama_host = st.text_input("OLLAMA_HOST (advanced)", value=ollama_host)
-        ollama_model = st.text_input("OLLAMA_MODEL (advanced)", value=ollama_model)
-        openai_key = st.text_input("OPENAI_API_KEY (advanced)", type="password", value=openai_key)
-        openai_model = st.text_input("OPENAI_MODEL (advanced)", value=openai_model)
+        ollama_model = st.selectbox(
+            "OLLAMA_MODEL (advanced)",
+            options=ollama_model_options,
+            index=_selected_index(ollama_model_options, ollama_model),
+            format_func=lambda m: model_option_label(m, "ollama-local"),
+        )
 
 
 def run_python_script(script_name: str, args: list[str] | None = None) -> tuple[bool, str]:
@@ -148,18 +197,13 @@ if mode == "Parse One Resume":
             with st.spinner("Running model..."):
                 entity = extract_entities(
                     text,
-                    provider=provider,
-                    gemini_key=gemini_key,
-                    groq_key=groq_key,
                     ollama_model=ollama_model,
                     ollama_host=ollama_host,
-                    openai_key=openai_key,
-                    openai_model=openai_model,
                     selected_fields=selected_fields,
                 )
 
             if entity is None:
-                st.error("Extraction failed. Check provider/API key or local Ollama host/model.")
+                st.error("Extraction failed. Check local Ollama host/model.")
                 st.stop()
 
             data = entity.model_dump()
@@ -210,7 +254,7 @@ if mode == "Parse One Resume":
 
 elif mode == "Evaluate Quality":
     st.subheader("Evaluate Extraction Quality")
-    st.caption("Runs your selected provider on labeled samples and reports precision/recall/F1.")
+    st.caption("Runs local Ollama model on labeled samples and reports precision/recall/F1.")
     gt_path = Path("Entity Recognition in Resumes.json")
     if not gt_path.exists():
         st.error("Entity Recognition in Resumes.json not found")
@@ -234,13 +278,8 @@ elif mode == "Evaluate Quality":
             gold = annotations_to_entity(annotations)
             pred = extract_entities(
                 content,
-                provider=provider,
-                gemini_key=gemini_key,
-                groq_key=groq_key,
                 ollama_model=ollama_model,
                 ollama_host=ollama_host,
-                openai_key=openai_key,
-                openai_model=openai_model,
             )
             if pred is None:
                 pred = ResumeEntity()
@@ -272,7 +311,7 @@ elif mode == "Evaluate Quality":
 
 else:
     st.subheader("Fine-tune Models")
-    st.caption("Use one tab at a time based on your goal: local spaCy model, local Ollama profile, or OpenAI API fine-tuning.")
+    st.caption("Use one tab at a time based on your goal: local spaCy model or local Ollama profile.")
 
     def show_step(script_name: str, title: str) -> bool:
         with st.spinner(f"Running {script_name}..."):
@@ -287,9 +326,7 @@ else:
                 st.text_area(f"{title} error output", output, height=220)
         return ok
 
-    tab_local, tab_ollama, tab_api = st.tabs(
-        ["Local spaCy NER", "Local Ollama Profile", "OpenAI API Fine-tune"]
-    )
+    tab_local, tab_ollama = st.tabs(["Local spaCy NER", "Local Ollama Profile"])
 
     with tab_local:
         st.markdown("### Local spaCy Pipeline")
@@ -345,7 +382,13 @@ else:
     with tab_ollama:
         st.markdown("### Local Llama Specialization")
         st.caption("Creates a resume-focused local model profile from your base Ollama model.")
-        llama_base = st.text_input("Ollama base model", value=ollama_model)
+        llama_base = st.selectbox(
+            "Ollama base model",
+            options=ollama_model_options,
+            index=_selected_index(ollama_model_options, ollama_model),
+            format_func=lambda m: model_option_label(m, "ollama-local"),
+            key="llama_base_model",
+        )
         llama_new = st.text_input("New local model name", value="resume-parser-local")
         run_llama_tune = st.button("Create Local Resume Llama Model", key="run_llama_tune")
 
@@ -363,65 +406,3 @@ else:
             if output:
                 st.text_area("Local llama output", output, height=220, key="llama_output")
 
-    with tab_api:
-        st.markdown("### OpenAI API Fine-tuning")
-        st.caption("Prepare dataset, start a fine-tune job, and check job status.")
-
-        api_samples = st.number_input(
-            "API tuning max samples",
-            min_value=50,
-            max_value=2000,
-            value=250,
-            step=50,
-        )
-        api_base_model = st.text_input("API base model", value=openai_model, key="api_base_model")
-        api_job_id = st.text_input("Existing fine-tune job id (for status)", value="")
-
-        a1, a2, a3 = st.columns(3)
-        api_prepare = a1.button("Prepare API Dataset", key="api_prepare")
-        api_start = a2.button("Start API Fine-tune", key="api_start")
-        api_status = a3.button("Check API Job Status", key="api_status")
-
-        if api_prepare:
-            with st.spinner("Preparing API dataset..."):
-                ok, output = run_python_script("api_finetune.py", ["prepare", "--max-samples", str(api_samples)])
-            if ok:
-                st.success("API dataset prepared")
-            else:
-                st.error("API dataset preparation failed")
-            if output:
-                st.text_area("API prepare output", output, height=180, key="api_prepare_output")
-
-        if api_start:
-            if not openai_key:
-                st.error("Set OPENAI_API_KEY in sidebar first")
-            else:
-                with st.spinner("Starting API fine-tuning job..."):
-                    ok, output = run_python_script(
-                        "api_finetune.py",
-                        ["start", "--api-key", openai_key, "--base-model", api_base_model],
-                    )
-                if ok:
-                    st.success("API fine-tuning job started")
-                else:
-                    st.error("API fine-tuning start failed")
-                if output:
-                    st.text_area("API start output", output, height=220, key="api_start_output")
-
-        if api_status:
-            if not openai_key:
-                st.error("Set OPENAI_API_KEY in sidebar first")
-            elif not api_job_id.strip():
-                st.error("Enter fine-tune job id")
-            else:
-                with st.spinner("Checking API fine-tuning status..."):
-                    ok, output = run_python_script(
-                        "api_finetune.py",
-                        ["status", "--api-key", openai_key, "--job-id", api_job_id.strip()],
-                    )
-                if ok:
-                    st.success("Fetched API job status")
-                else:
-                    st.error("Failed to fetch API job status")
-                if output:
-                    st.text_area("API status output", output, height=260, key="api_status_output")

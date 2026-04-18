@@ -102,57 +102,6 @@ def _clean_payload(data: dict, selected_fields: list[str]) -> dict:
     return out
 
 
-def extract_with_gemini(
-    resume_text: str,
-    api_key: str,
-    selected_fields: list[str],
-) -> Optional[ResumeEntity]:
-    try:
-        import google.generativeai as genai
-
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        prompt = _build_prompt(resume_text, selected_fields)
-        response = model.generate_content(
-            prompt,
-            generation_config={"temperature": 0.0, "max_output_tokens": 2048},
-        )
-        text = getattr(response, "text", "") or ""
-        parsed = _extract_json_object(text)
-        if not parsed:
-            return None
-        return ResumeEntity(**_clean_payload(parsed, selected_fields))
-    except Exception:
-        return None
-
-
-def extract_with_groq(
-    resume_text: str,
-    api_key: str,
-    selected_fields: list[str],
-) -> Optional[ResumeEntity]:
-    try:
-        from groq import Groq
-
-        client = Groq(api_key=api_key)
-        prompt = _build_prompt(resume_text, selected_fields)
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            temperature=0.0,
-            messages=[
-                {"role": "system", "content": "Return only valid JSON."},
-                {"role": "user", "content": prompt},
-            ],
-        )
-        text = completion.choices[0].message.content or ""
-        parsed = _extract_json_object(text)
-        if not parsed:
-            return None
-        return ResumeEntity(**_clean_payload(parsed, selected_fields))
-    except Exception:
-        return None
-
-
 def extract_with_ollama(
     resume_text: str,
     model_name: str,
@@ -192,86 +141,16 @@ def extract_with_ollama(
         return None
 
 
-def extract_with_openai(
-    resume_text: str,
-    api_key: str,
-    model_name: str,
-    selected_fields: list[str],
-) -> Optional[ResumeEntity]:
-    try:
-        import requests
-
-        prompt = _build_prompt(resume_text, selected_fields)
-        response = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model_name,
-                "temperature": 0,
-                "messages": [
-                    {"role": "system", "content": "Return only valid JSON."},
-                    {"role": "user", "content": prompt},
-                ],
-            },
-            timeout=180,
-        )
-        response.raise_for_status()
-
-        payload = response.json()
-        choices = payload.get("choices", [])
-        if not choices:
-            return None
-
-        text = str(choices[0].get("message", {}).get("content", "")).strip()
-        parsed = _extract_json_object(text)
-        if not parsed:
-            return None
-        return ResumeEntity(**_clean_payload(parsed, selected_fields))
-    except Exception:
-        return None
-
-
 def extract_entities(
     resume_text: str,
-    provider: str = "gemini",
-    gemini_key: Optional[str] = None,
-    groq_key: Optional[str] = None,
     ollama_model: Optional[str] = None,
     ollama_host: Optional[str] = None,
-    openai_key: Optional[str] = None,
-    openai_model: Optional[str] = None,
     selected_fields: Optional[list[str]] = None,
 ) -> Optional[ResumeEntity]:
-    provider = (provider or "gemini").strip().lower()
-    gemini_key = gemini_key or os.getenv("GEMINI_API_KEY")
-    groq_key = groq_key or os.getenv("GROQ_API_KEY")
     ollama_model = ollama_model or os.getenv("OLLAMA_MODEL", "llama3.2:3b")
     ollama_host = ollama_host or os.getenv("OLLAMA_HOST", "http://localhost:11434")
-    openai_key = openai_key or os.getenv("OPENAI_API_KEY")
-    openai_model = openai_model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     selected = _normalize_selected_fields(selected_fields)
 
-    if provider == "gemini":
-        if not gemini_key:
-            return None
-        return extract_with_gemini(resume_text, gemini_key, selected)
-
-    if provider == "groq":
-        if not groq_key:
-            return None
-        return extract_with_groq(resume_text, groq_key, selected)
-
-    if provider == "ollama-local":
-        if not ollama_model:
-            return None
-        return extract_with_ollama(resume_text, ollama_model, ollama_host, selected)
-
-    if provider == "openai":
-        if not openai_key:
-            return None
-        return extract_with_openai(resume_text, openai_key, openai_model, selected)
-
-    return None
+    if not ollama_model:
+        return None
+    return extract_with_ollama(resume_text, ollama_model, ollama_host, selected)

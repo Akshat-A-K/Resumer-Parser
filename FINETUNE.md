@@ -3,7 +3,6 @@
 This project now has a simple local fine-tuning pipeline.
 
 It also includes:
-- API-based fine-tuning workflow (OpenAI) from Streamlit
 - Local Ollama resume-parser model specialization from Streamlit
 
 ## Why two datasets are used
@@ -52,16 +51,6 @@ Open Fine-tuning mode in the app and run in this order:
 3. Prepare Split
 4. Train Model
 5. Evaluate Model
-
-## API fine-tuning from Streamlit
-
-In Fine-tuning mode:
-1. Fill OPENAI_API_KEY and OPENAI_MODEL in sidebar
-2. Click Prepare API Dataset
-3. Click Start API Fine-tune
-4. Use Check API Job Status with job id
-
-After success, set provider to `openai` and use the fine-tuned model id in OPENAI_MODEL.
 
 ## Local llama specialization from Streamlit
 

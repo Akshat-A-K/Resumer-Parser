@@ -10,9 +10,12 @@ import random
 import string
 from pathlib import Path
 
+from pypdf import PdfReader
+
 SEED = 42
 SOURCE_NER = Path("Entity Recognition in Resumes.json")
 SOURCE_CSV = Path("Resume/Resume.csv")
+SOURCE_PDF_DIR = Path("data/data")
 OUT_DIR = Path("splits")
 
 LABEL_MAP = {
@@ -184,6 +187,32 @@ def export_resume_csv_text(path: Path, out_path: Path) -> int:
     return count
 
 
+def export_pdf_corpus_text(pdf_root: Path, out_path: Path, max_files: int = 2500) -> int:
+    """Export plain text from PDF resumes for domain corpus usage."""
+    if not pdf_root.exists():
+        return 0
+
+    pdf_paths = sorted(pdf_root.rglob("*.pdf"))[:max_files]
+    count = 0
+
+    with out_path.open("w", encoding="utf-8") as f_out:
+        for pdf in pdf_paths:
+            try:
+                reader = PdfReader(str(pdf))
+                parts = []
+                for page in reader.pages:
+                    parts.append((page.extract_text() or "").strip())
+                text = " ".join([p for p in parts if p]).strip()
+                if not text:
+                    continue
+                f_out.write(text.replace("\n", " ") + "\n")
+                count += 1
+            except Exception:
+                continue
+
+    return count
+
+
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -201,10 +230,12 @@ def main() -> None:
     save_jsonl(OUT_DIR / "test.jsonl", test)
 
     resume_count = export_resume_csv_text(SOURCE_CSV, OUT_DIR / "resume_unlabeled.txt")
+    pdf_count = export_pdf_corpus_text(SOURCE_PDF_DIR, OUT_DIR / "data_unlabeled.txt")
 
     print(f"Total labeled samples: {len(samples)}")
     print(f"Train: {len(train)} | Val: {len(val)} | Test: {len(test)}")
     print(f"Resume.csv unlabeled texts exported: {resume_count}")
+    print(f"PDF corpus texts exported: {pdf_count}")
     print("Saved in ./splits")
 
 
