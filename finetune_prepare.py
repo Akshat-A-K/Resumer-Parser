@@ -1,16 +1,12 @@
-"""Prepare resume NER dataset with 80/10/10 split.
-
-Usage:
-    python finetune_prepare.py
-"""
+# prepare resume datasets for llm finetuning with 80/10/10 split
 
 import csv
 import json
 import random
-import string
 from pathlib import Path
 
 from pypdf import PdfReader
+from evaluator import annotations_to_dict, LABEL_MAP
 
 SEED = 42
 SOURCE_NER = Path("Entity Recognition in Resumes.json")
@@ -18,21 +14,9 @@ SOURCE_CSV = Path("Resume/Resume.csv")
 SOURCE_PDF_DIR = Path("data/data")
 OUT_DIR = Path("splits")
 
-LABEL_MAP = {
-    "Name": "NAME",
-    "Email Address": "EMAIL",
-    "Location": "LOCATION",
-    "Designation": "DESIGNATION",
-    "Companies worked at": "COMPANY",
-    "Skills": "SKILL",
-    "College Name": "COLLEGE",
-    "Degree": "DEGREE",
-    "Graduation Year": "GRAD_YEAR",
-    "Years of Experience": "EXPERIENCE",
-}
-
 
 def load_ner_records(path: Path) -> list[dict]:
+    # load newline delimited json file
     records = []
     with path.open("r", encoding="utf-8") as f:
         for line in f:
@@ -46,113 +30,54 @@ def load_ner_records(path: Path) -> list[dict]:
     return records
 
 
-def to_training_sample(record: dict) -> dict | None:
-    text = str(record.get("content", ""))
+def record_to_training_pair(record: dict) -> dict | None:
+    # convert ner annotated record to text expected_output pair
+    text = str(record.get("content", "")).strip()
     annotations = record.get("annotation", [])
-    if not text:
+    if not text or not annotations:
         return None
 
-    entities = []
-    for ann in annotations:
-        labels = ann.get("label", [])
-        points = ann.get("points", [])
-        if not labels or not points:
+    expected = annotations_to_dict(annotations)
+    if not expected:
+        return None
+
+    return {"text": text, "expected_output": expected}
+
+
+def compute_quality_score(pair: dict) -> float:
+    # score training pair by richness of annotations for fewshot selection
+    expected = pair.get("expected_output", {})
+    text = pair.get("text", "")
+
+    field_count = 0
+    item_count = 0
+    for k, v in expected.items():
+        if v is None or v == []:
             continue
+        field_count += 1
+        if isinstance(v, list):
+            item_count += len(v)
+        else:
+            item_count += 1
 
-        label = labels[0]
-        norm_label = LABEL_MAP.get(label)
-        if norm_label is None:
-            continue
-
-        p = points[0]
-        start = p.get("start")
-        end = p.get("end")
-        if start is None or end is None:
-            continue
-
-        # dataset end index is inclusive, convert to exclusive
-        start = int(start)
-        end = int(end) + 1
-
-        if start < 0 or end > len(text) or start >= end:
-            continue
-
-        entities.append([start, end, norm_label])
-
-    entities = sanitize_entities(text, entities)
-    entities = remove_overlaps(entities)
-
-    return {"text": text, "entities": entities}
-
-
-def sanitize_entities(text: str, entities: list[list]) -> list[list]:
-    """Clean noisy spans so spaCy training is more stable."""
-    punct = set(string.punctuation) | {"•", "●", "▪", "◦", "➢", "❖", "☑", "〓"}
-    cleaned: list[list] = []
-    seen = set()
-
-    for ent in entities:
-        s, e, label = int(ent[0]), int(ent[1]), str(ent[2])
-        s = max(0, min(s, len(text)))
-        e = max(0, min(e, len(text)))
-        if s >= e:
-            continue
-
-        while s < e and text[s].isspace():
-            s += 1
-        while s < e and text[e - 1].isspace():
-            e -= 1
-
-        while s < e and text[s] in punct:
-            s += 1
-        while s < e and text[e - 1] in punct:
-            e -= 1
-
-        if s >= e:
-            continue
-
-        key = (s, e, label)
-        if key in seen:
-            continue
-        seen.add(key)
-        cleaned.append([s, e, label])
-
-    return cleaned
-
-
-def remove_overlaps(entities: list[list]) -> list[list]:
-    """Keep a non-overlapping set of spans (prefer longer spans, then earlier spans)."""
-    # Sort by span length desc, then by start asc so longer matches are preferred.
-    ranked = sorted(entities, key=lambda x: (-(int(x[1]) - int(x[0])), int(x[0]), int(x[1])))
-    kept: list[list] = []
-
-    def overlaps(a_start: int, a_end: int, b_start: int, b_end: int) -> bool:
-        return max(a_start, b_start) < min(a_end, b_end)
-
-    for ent in ranked:
-        s, e, _ = int(ent[0]), int(ent[1]), ent[2]
-        conflict = False
-        for k in kept:
-            ks, ke = int(k[0]), int(k[1])
-            if overlaps(s, e, ks, ke):
-                conflict = True
-                break
-        if not conflict:
-            kept.append(ent)
-
-    kept.sort(key=lambda x: (int(x[0]), int(x[1])))
-    return kept
+    text_len = len(text)
+    length_bonus = min(text_len / 2000, 1.0)
+    return field_count * 3 + item_count + length_bonus
 
 
 def split_records(records: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
-    random.Random(SEED).shuffle(records)
-    n = len(records)
+    # 80/10/10 split with seed 42
+    rng = random.Random(SEED)
+    shuffled = list(records)
+    rng.shuffle(shuffled)
+
+    n = len(shuffled)
     n_train = int(0.8 * n)
     n_val = int(0.1 * n)
 
-    train = records[:n_train]
-    val = records[n_train:n_train + n_val]
-    test = records[n_train + n_val:]
+    train = shuffled[:n_train]
+    val = shuffled[n_train:n_train + n_val]
+    test = shuffled[n_train + n_val:]
     return train, val, test
 
 
@@ -162,12 +87,28 @@ def save_jsonl(path: Path, rows: list[dict]) -> None:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+def select_fewshot_examples(train_set: list[dict], count: int = 10) -> list[dict]:
+    # select best training examples for fewshot prompting
+    scored = [(compute_quality_score(ex), ex) for ex in train_set]
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    selected = []
+    for _, ex in scored:
+        if len(selected) >= count:
+            break
+        selected.append(ex)
+
+    return selected
+
+
 def export_resume_csv_text(path: Path, out_path: Path) -> int:
+    # export text from resume csv
     if not path.exists():
         return 0
 
     count = 0
-    with path.open("r", encoding="utf-8", errors="ignore") as f_in, out_path.open("w", encoding="utf-8") as f_out:
+    with path.open("r", encoding="utf-8", errors="ignore") as f_in, \
+         out_path.open("w", encoding="utf-8") as f_out:
         reader = csv.DictReader(f_in)
         candidates = ["Resume_str", "Resume", "resume", "text", "Text"]
 
@@ -180,7 +121,7 @@ def export_resume_csv_text(path: Path, out_path: Path) -> int:
             if text_col is None:
                 continue
             text = (row.get(text_col) or "").strip()
-            if not text:
+            if not text or len(text) < 100:
                 continue
             f_out.write(text.replace("\n", " ") + "\n")
             count += 1
@@ -188,7 +129,7 @@ def export_resume_csv_text(path: Path, out_path: Path) -> int:
 
 
 def export_pdf_corpus_text(pdf_root: Path, out_path: Path, max_files: int = 2500) -> int:
-    """Export plain text from PDF resumes for domain corpus usage."""
+    # export plain text from pdf resumes
     if not pdf_root.exists():
         return 0
 
@@ -203,7 +144,7 @@ def export_pdf_corpus_text(pdf_root: Path, out_path: Path, max_files: int = 2500
                 for page in reader.pages:
                     parts.append((page.extract_text() or "").strip())
                 text = " ".join([p for p in parts if p]).strip()
-                if not text:
+                if not text or len(text) < 100:
                     continue
                 f_out.write(text.replace("\n", " ") + "\n")
                 count += 1
@@ -216,12 +157,16 @@ def export_pdf_corpus_text(pdf_root: Path, out_path: Path, max_files: int = 2500
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    print(f"Loading NER data from {SOURCE_NER}...")
     raw = load_ner_records(SOURCE_NER)
+    print(f"  Loaded {len(raw)} raw records")
+
     samples = []
     for rec in raw:
-        item = to_training_sample(rec)
-        if item is not None:
-            samples.append(item)
+        pair = record_to_training_pair(rec)
+        if pair is not None:
+            samples.append(pair)
+    print(f"  Converted {len(samples)} valid training pairs")
 
     train, val, test = split_records(samples)
 
@@ -229,14 +174,34 @@ def main() -> None:
     save_jsonl(OUT_DIR / "val.jsonl", val)
     save_jsonl(OUT_DIR / "test.jsonl", test)
 
-    resume_count = export_resume_csv_text(SOURCE_CSV, OUT_DIR / "resume_unlabeled.txt")
-    pdf_count = export_pdf_corpus_text(SOURCE_PDF_DIR, OUT_DIR / "data_unlabeled.txt")
+    fewshot = select_fewshot_examples(train, count=10)
+    with (OUT_DIR / "fewshot_examples.json").open("w", encoding="utf-8") as f:
+        json.dump(fewshot, f, indent=2, ensure_ascii=False)
+    print(f"  Selected {len(fewshot)} fewshot examples")
 
-    print(f"Total labeled samples: {len(samples)}")
+    resume_count = export_resume_csv_text(SOURCE_CSV, OUT_DIR / "corpus_unlabeled.txt")
+    pdf_count = export_pdf_corpus_text(SOURCE_PDF_DIR, OUT_DIR / "corpus_pdf.txt")
+
+    stats = {
+        "seed": SEED,
+        "split_ratio": "80/10/10",
+        "total_labeled_samples": len(samples),
+        "train_count": len(train),
+        "val_count": len(val),
+        "test_count": len(test),
+        "fewshot_count": len(fewshot),
+        "resume_csv_unlabeled": resume_count,
+        "pdf_corpus_unlabeled": pdf_count,
+    }
+    with (OUT_DIR / "split_stats.json").open("w", encoding="utf-8") as f:
+        json.dump(stats, f, indent=2)
+
+    print(f"\nTotal labeled samples: {len(samples)}")
     print(f"Train: {len(train)} | Val: {len(val)} | Test: {len(test)}")
-    print(f"Resume.csv unlabeled texts exported: {resume_count}")
-    print(f"PDF corpus texts exported: {pdf_count}")
-    print("Saved in ./splits")
+    print(f"Fewshot examples: {len(fewshot)}")
+    print(f"Resume.csv unlabeled: {resume_count}")
+    print(f"PDF corpus unlabeled: {pdf_count}")
+    print(f"Saved in ./{OUT_DIR}")
 
 
 if __name__ == "__main__":

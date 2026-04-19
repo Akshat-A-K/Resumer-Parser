@@ -1,34 +1,16 @@
-"""
-evaluator.py - Comprehensive evaluation metrics for resume entity extraction.
-
-Metrics
--------
-Scalar fields  (name, email, location, graduation_year, years_of_experience):
-  • Exact Match (EM)         – binary, after normalisation
-  • Fuzzy Match              – SequenceMatcher ratio  (0-1)
-  • Token-level Precision / Recall / F1
-
-List fields  (designation, companies, skills, college, degree):
-  • Set-based Precision / Recall / F1  with fuzzy matching
-  • Jaccard Similarity
-
-Aggregate:
-  • Per-entity-type micro metrics
-  • Macro-averaged Precision / Recall / F1
-"""
+# evaluation metrics for resume entity extraction
 
 import json
 import re
-from collections import defaultdict
 from difflib import SequenceMatcher
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import pandas as pd
-
+from schema import LIST_FIELDS as SCHEMA_LIST_FIELDS
+from schema import STRING_FIELDS as SCHEMA_STRING_FIELDS
 from schema import ResumeEntity
 
-# ── Constants ──────────────────────────────────────────────────────────
-
+# map annotation labels to schema field names
 LABEL_MAP = {
     "Name": "name",
     "Email Address": "email",
@@ -42,18 +24,12 @@ LABEL_MAP = {
     "Years of Experience": "years_of_experience",
 }
 
-SINGLE_FIELDS = {"name", "email", "location", "graduation_year", "years_of_experience"}
-LIST_FIELDS = {"designation", "companies_worked_at", "skills", "college_name", "degree"}
-
-# ── Ground-truth helpers ──────────────────────────────────────────────
+SINGLE_FIELDS = set(SCHEMA_STRING_FIELDS)
+LIST_FIELDS_SET = set(SCHEMA_LIST_FIELDS)
 
 
 def load_ground_truth(json_path: str) -> List[dict]:
-    """
-    Load the annotated ground-truth JSON file.
-
-    The file is newline-delimited JSON (one object per line).
-    """
+    # load newline delimited json annotation file
     data = []
     with open(json_path, "r", encoding="utf-8") as fh:
         for line in fh:
@@ -67,19 +43,12 @@ def load_ground_truth(json_path: str) -> List[dict]:
 
 
 def annotations_to_entity(annotations: List[dict]) -> ResumeEntity:
-    """Convert raw annotation list to a ResumeEntity ground-truth object."""
-    entity: Dict = {
-        "name": None,
-        "email": None,
-        "location": None,
-        "graduation_year": None,
-        "years_of_experience": None,
-        "designation": [],
-        "companies_worked_at": [],
-        "skills": [],
-        "college_name": [],
-        "degree": [],
-    }
+    # convert raw annotation list to resume entity
+    entity: Dict = {}
+    for field in SCHEMA_STRING_FIELDS:
+        entity[field] = None
+    for field in SCHEMA_LIST_FIELDS:
+        entity[field] = []
 
     for ann in annotations:
         raw_label = ann.get("label")
@@ -107,19 +76,59 @@ def annotations_to_entity(annotations: List[dict]) -> ResumeEntity:
         if field in SINGLE_FIELDS:
             if entity[field] is None:
                 entity[field] = text
-        else:
-            # Deduplicate ground-truth list entries
+        elif field in LIST_FIELDS_SET:
             if text not in entity[field]:
                 entity[field].append(text)
 
     return ResumeEntity(**entity)
 
 
-# ── Text normalisation ────────────────────────────────────────────────
+def annotations_to_dict(annotations: List[dict]) -> dict:
+    # convert raw annotations to plain dict for training data
+    entity: Dict = {}
+    for field in SCHEMA_STRING_FIELDS:
+        entity[field] = None
+    for field in SCHEMA_LIST_FIELDS:
+        entity[field] = []
+
+    for ann in annotations:
+        raw_label = ann.get("label")
+        if isinstance(raw_label, list):
+            if not raw_label:
+                continue
+            label = str(raw_label[0]).strip()
+        elif isinstance(raw_label, str):
+            label = raw_label.strip()
+        else:
+            continue
+
+        field = LABEL_MAP.get(label)
+        if field is None:
+            continue
+
+        points = ann.get("points")
+        if not isinstance(points, list) or not points:
+            continue
+
+        text = str(points[0].get("text", "")).strip()
+        if not text:
+            continue
+
+        if field in SINGLE_FIELDS:
+            if entity[field] is None:
+                entity[field] = text
+        elif field in LIST_FIELDS_SET:
+            if text not in entity[field]:
+                entity[field].append(text)
+
+    cleaned = {}
+    for k, v in entity.items():
+        if v is not None and v != []:
+            cleaned[k] = v
+    return cleaned
 
 
 def normalize(text: str) -> str:
-    """Lower-case, collapse whitespace, strip punctuation."""
     if not text:
         return ""
     text = text.lower().strip()
@@ -128,16 +137,11 @@ def normalize(text: str) -> str:
     return text
 
 
-# ── Scalar-field metrics ──────────────────────────────────────────────
-
-
 def exact_match(pred: str, gold: str) -> float:
-    """1.0 if normalised strings are identical, else 0.0."""
     return 1.0 if normalize(pred) == normalize(gold) else 0.0
 
 
 def fuzzy_score(pred: str, gold: str) -> float:
-    """SequenceMatcher ratio on normalised strings (0-1)."""
     if not pred and not gold:
         return 1.0
     if not pred or not gold:
@@ -146,11 +150,7 @@ def fuzzy_score(pred: str, gold: str) -> float:
 
 
 def token_prf(pred: str, gold: str) -> Tuple[float, float, float]:
-    """
-    Token-level precision, recall, F1.
-
-    Each string is treated as a bag of words; overlap is counted.
-    """
+    # token level precision recall f1
     p_tok = set(normalize(pred).split())
     g_tok = set(normalize(gold).split())
 
@@ -168,11 +168,7 @@ def token_prf(pred: str, gold: str) -> Tuple[float, float, float]:
     return prec, rec, f1
 
 
-# ── List-field metrics ────────────────────────────────────────────────
-
-
 def jaccard(pred_set: set, gold_set: set) -> float:
-    """|A ∩ B| / |A ∪ B|."""
     if not pred_set and not gold_set:
         return 1.0
     if not pred_set or not gold_set:
@@ -181,7 +177,6 @@ def jaccard(pred_set: set, gold_set: set) -> float:
 
 
 def _fuzzy_raw(a: str, b: str) -> float:
-    """Sequence similarity on already-normalised strings."""
     if not a and not b:
         return 1.0
     if not a or not b:
@@ -189,17 +184,8 @@ def _fuzzy_raw(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
-def set_prf(
-    pred_list: List[str],
-    gold_list: List[str],
-    threshold: float = 0.75,
-) -> Tuple[float, float, float]:
-    """
-    Set-based precision / recall / F1 with fuzzy matching.
-
-    A predicted item counts as a match if its best fuzzy score against
-    any unmatched gold item exceeds *threshold*.
-    """
+def set_prf(pred_list, gold_list, threshold=0.75):
+    # set based precision recall f1 with fuzzy matching
     if not pred_list and not gold_list:
         return 1.0, 1.0, 1.0
     if not pred_list:
@@ -233,16 +219,13 @@ def set_prf(
     return prec, rec, f1
 
 
-# ── Single-sample evaluation ─────────────────────────────────────────
-
-
 def evaluate_single(pred: ResumeEntity, gold: ResumeEntity) -> Dict[str, dict]:
-    """Return per-field metrics for one (prediction, ground-truth) pair."""
+    # per field metrics for one prediction ground truth pair
     results: Dict[str, dict] = {}
 
     for field in SINGLE_FIELDS:
-        pv = getattr(pred, field) or ""
-        gv = getattr(gold, field) or ""
+        pv = getattr(pred, field, None) or ""
+        gv = getattr(gold, field, None) or ""
         em = exact_match(pv, gv)
         fs = fuzzy_score(pv, gv)
         p, r, f1 = token_prf(pv, gv)
@@ -252,9 +235,9 @@ def evaluate_single(pred: ResumeEntity, gold: ResumeEntity) -> Dict[str, dict]:
             has_gold=bool(gv), has_pred=bool(pv),
         )
 
-    for field in LIST_FIELDS:
-        pl = getattr(pred, field) or []
-        gl = getattr(gold, field) or []
+    for field in LIST_FIELDS_SET:
+        pl = getattr(pred, field, None) or []
+        gl = getattr(gold, field, None) or []
         p, r, f1 = set_prf(pl, gl)
         ps = {normalize(x) for x in pl}
         gs = {normalize(x) for x in gl}
@@ -268,28 +251,13 @@ def evaluate_single(pred: ResumeEntity, gold: ResumeEntity) -> Dict[str, dict]:
     return results
 
 
-# ── Batch evaluation & aggregation ────────────────────────────────────
-
-
-def evaluate_batch(
-    predictions: List[ResumeEntity],
-    ground_truths: List[ResumeEntity],
-) -> Dict:
-    """
-    Evaluate a batch and return aggregate metrics.
-
-    Returns
-    -------
-    dict with keys:
-      per_field   – per-entity-type averaged metrics
-      macro_avg   – macro-averaged P / R / F1
-      num_samples – number of samples evaluated
-    """
+def evaluate_batch(predictions, ground_truths) -> Dict:
+    # evaluate a batch and return aggregate metrics
     all_results = [
         evaluate_single(p, g) for p, g in zip(predictions, ground_truths)
     ]
 
-    all_fields = list(SINGLE_FIELDS) + list(LIST_FIELDS)
+    all_fields = list(SINGLE_FIELDS) + list(LIST_FIELDS_SET)
     field_metrics: Dict[str, dict] = {}
 
     for field in all_fields:
@@ -310,7 +278,7 @@ def evaluate_batch(
                 vals = [d[extra] for d in field_data if extra in d]
                 avg[extra] = sum(vals) / len(vals) if vals else 0.0
 
-        if field in LIST_FIELDS:
+        if field in LIST_FIELDS_SET:
             vals = [d["jaccard"] for d in field_data if "jaccard" in d]
             avg["jaccard"] = sum(vals) / len(vals) if vals else 0.0
 
@@ -318,10 +286,11 @@ def evaluate_batch(
         avg["total_samples"] = len(field_data)
         field_metrics[field] = avg
 
-    # Macro average
-    ps = [field_metrics[f]["precision"] for f in all_fields if f in field_metrics]
-    rs = [field_metrics[f]["recall"] for f in all_fields if f in field_metrics]
-    fs = [field_metrics[f]["f1"] for f in all_fields if f in field_metrics]
+    # macro average only over fields with ground truth
+    scored_fields = [f for f in all_fields if f in field_metrics and field_metrics[f].get("support", 0) > 0]
+    ps = [field_metrics[f]["precision"] for f in scored_fields]
+    rs = [field_metrics[f]["recall"] for f in scored_fields]
+    fs = [field_metrics[f]["f1"] for f in scored_fields]
 
     macro = dict(
         precision=sum(ps) / len(ps) if ps else 0.0,
@@ -332,11 +301,8 @@ def evaluate_batch(
     return dict(per_field=field_metrics, macro_avg=macro, num_samples=len(all_results))
 
 
-# ── DataFrame helper ──────────────────────────────────────────────────
-
-
 def results_to_dataframe(eval_results: Dict) -> pd.DataFrame:
-    """Convert evaluation dict to a tidy DataFrame for display / export."""
+    # convert evaluation dict to dataframe for display
     rows = []
     for field, m in eval_results["per_field"].items():
         row = {"Entity Type": field.replace("_", " ").title()}

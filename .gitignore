@@ -51,8 +51,14 @@ models/
 splits/train.jsonl
 splits/val.jsonl
 splits/test.jsonl
-splits/resume_unlabeled.txt
-api_tuning/Modelfile.resume
+splits/fewshot_examples.json
+splits/corpus_unlabeled.txt
+splits/corpus_pdf.txt
+splits/split_stats.json
+splits/gemini_tuning_data.jsonl
+api_tuning/
+runs/
+cache/
 
 # Common large binary artifacts
 *.pt

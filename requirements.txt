@@ -1,5 +1,6 @@
 streamlit
 pypdf
+pymupdf
 pydantic
 python-dotenv
 pandas
@@ -7,5 +8,4 @@ easyocr
 pillow
 numpy
 requests
-spacy
-spacy-lookups-data
+google-generativeai
