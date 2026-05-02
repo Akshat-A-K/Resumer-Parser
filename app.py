@@ -1,9 +1,7 @@
-# T13.1 smart document parser streamlit app
+# Section wise prompt based fine tuning streamlit app
 
 import json
 import os
-import shutil
-import subprocess
 import time
 from pathlib import Path
 
@@ -25,8 +23,8 @@ from schema import (
 
 load_dotenv()
 
-st.set_page_config(page_title="Resume Parser", page_icon="", layout="wide")
-st.title("Smart Document Parser")
+st.set_page_config(page_title="Section Wise Prompt Based Fine Tuning", page_icon="", layout="wide")
+st.title("Section Wise Prompt Based Fine Tuning")
 
 
 def parse_uploaded_file(uploaded_file) -> tuple[str, list[str]]:
@@ -123,96 +121,20 @@ def _classify_link(url: str) -> str:
 
     return "Link"
 
-def _find_ollama_cli():
-    found = shutil.which("ollama")
-    if found:
-        return found
-    candidates = [
-        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe",
-        Path("C:/Program Files/Ollama/ollama.exe"),
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return str(candidate)
-    return None
-
-
-@st.cache_data(ttl=60)
-def get_ollama_model_options(current_model):
-    # only show models actually installed in ollama
-    options = []
-    ollama_cli = _find_ollama_cli()
-
-    if ollama_cli:
-        try:
-            # call ollama with a short timeout so the UI doesn't hang if the CLI blocks
-            try:
-                result = subprocess.run([ollama_cli, "list"], capture_output=True, text=True, timeout=3)
-            except subprocess.TimeoutExpired:
-                result = None
-
-            if result and result.returncode == 0 and result.stdout:
-                lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-                # skip header line if present
-                for line in lines[1:]:
-                    model_name = line.split()[0]
-                    if model_name not in options:
-                        options.append(model_name)
-        except Exception:
-            pass
-
-    # add current_model if not already in list
-    if current_model and current_model not in options:
-        options.append(current_model)
-
-    if not options:
-        options = [current_model or "llama3.2:3b"]
-
-    return options
-
-
-# ---------------------------------------------------------------------------
-# Sidebar
-# ---------------------------------------------------------------------------
 
 with st.sidebar:
     st.header("Configuration")
-
-    st.subheader("Model Selection")
-    model_choice = st.radio(
-        "Choose model",
-        ["ollama-basic", "ollama-finetuned"],
-        format_func=lambda x: {
-            "ollama-basic": "Ollama (Basic)",
-            "ollama-finetuned": "Ollama (Finetuned)",
-        }[x],
-        index=0,
-    )
     provider = "ollama-local"
-    finetuned = "finetuned" in model_choice
-
-    st.markdown("---")
 
     # initialize all provider vars to prevent NameErrors
     ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-    ollama_model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
-    if provider == "ollama-local":
-        ollama_model_options = get_ollama_model_options(ollama_model)
-        if finetuned:
-            ollama_model = "resume-parser-local-3b"
-        else:
-            if ollama_model not in ollama_model_options and ollama_model_options:
-                ollama_model = ollama_model_options[0]
+    ollama_model = "llama3.2:3b"
 
     truncation_limit = 6000
     
     st.subheader("Workflow")
     mode = st.radio("Choose task", ["Parse One Resume", "Evaluate Quality"], index=0)
 
-
-# ---------------------------------------------------------------------------
-# Helper: render structured data (education/experience/projects)
-# ---------------------------------------------------------------------------
 
 def render_structured_field(field_name: str, entries: list):
     """Render structured entries as expandable cards."""
@@ -288,10 +210,6 @@ def render_structured_field(field_name: str, entries: list):
                     st.markdown(f"**Description:** {desc}")
 
 
-# ---------------------------------------------------------------------------
-# Parse One Resume
-# ---------------------------------------------------------------------------
-
 if mode == "Parse One Resume":
     st.subheader("Parse One Resume")
     st.caption("Step 1: choose fields. Step 2: upload resume. Step 3: run extraction and edit results.")
@@ -338,7 +256,7 @@ if mode == "Parse One Resume":
                     st.markdown(f"- **{label}:** [{link}]({link})")
 
         if st.button("Step 3: Run Extraction", type="primary"):
-            mode_label = "Finetuned" if finetuned else "Direct"
+            mode_label = "Section-wise prompt"
             provider_label = "Ollama"
             with st.spinner(f"Running {provider_label} ({mode_label})..."):
                     t0 = time.time()
@@ -349,7 +267,6 @@ if mode == "Parse One Resume":
                         ollama_model=ollama_model,
                         ollama_host=ollama_host,
                         selected_fields=selected_fields,
-                        finetuned=finetuned,
                         extracted_links=extracted_links,
                         truncation_limit=effective_truncation,
                     )
@@ -380,7 +297,6 @@ if mode == "Parse One Resume":
 
             st.success(f"Extraction complete ({provider_label} {mode_label})")
 
-            # --- Structured data display ---
             structured_in_selection = [f for f in STRUCTURED_FIELDS if f in selected_fields_render]
             if "skills_categorized" in data and data["skills_categorized"]:
                 st.write("####  Skills by Category")
@@ -392,7 +308,6 @@ if mode == "Parse One Resume":
                             st.markdown(f"**{cat}**")
                             st.write(", ".join(skills))
                         idx += 1
-                st.markdown("---")
             if structured_in_selection:
                 st.markdown("### Structured Data")
                 tabs = st.tabs([FIELD_SPECS[f]["label"] for f in structured_in_selection])
@@ -401,7 +316,6 @@ if mode == "Parse One Resume":
                         entries = data.get(field, [])
                         render_structured_field(field, entries)
 
-            # --- Flat fields editable form ---
             flat_fields = [f for f in selected_fields_render if f not in STRUCTURED_FIELDS]
             if flat_fields:
                 st.markdown("### Editable Output")
@@ -431,11 +345,9 @@ if mode == "Parse One Resume":
                     st.session_state["last_entity"] = entity
                     st.success("Validated & saved")
 
-            # --- JSON view ---
             filtered = {k: data.get(k) for k in selected_fields_render}
             st.json(filtered)
 
-            # --- Download buttons (always visible because data is in session_state) ---
             json_str = json.dumps(filtered, indent=2, ensure_ascii=False, default=str)
             st.download_button(
                 " Download JSON",
@@ -446,10 +358,6 @@ if mode == "Parse One Resume":
             )
 
 
-# ---------------------------------------------------------------------------
-# Evaluate Quality
-# ---------------------------------------------------------------------------
-
 elif mode == "Evaluate Quality":
     st.subheader("Evaluate Extraction Quality")
     st.caption("Compare multiple configurations on labeled samples and reports precision/recall/F1.")
@@ -459,10 +367,10 @@ elif mode == "Evaluate Quality":
         st.error("Entity Recognition in Resumes.json not found")
         st.stop()
 
-    samples = st.slider("Samples", min_value=5, max_value=220, value=10, step=5)
+    samples = st.slider("Samples", min_value=1, max_value=220, value=10, step=2)
     
-    eval_configs = ["ollama-direct", "ollama-finetuned"]
-    st.caption("Evaluates Ollama direct vs finetuned")
+    eval_configs = ["ollama-section-wise"]
+    st.caption("Evaluates section-wise prompt extraction")
 
     if st.button("Run Evaluation", type="primary"):
         if not eval_configs:
@@ -481,9 +389,11 @@ elif mode == "Evaluate Quality":
             st.stop()
 
         all_config_metrics = {}
+        run_stamp = time.strftime("%Y%m%d_%H%M%S")
+        output_dir = Path("results") / f"eval_{run_stamp}"
+        output_dir.mkdir(parents=True, exist_ok=True)
         
         for config_key in eval_configs:
-            is_ft = "finetuned" in config_key
             label = config_key.replace("-", " ").title()
             
             st.write(f"### Evaluating {label}...")
@@ -502,7 +412,6 @@ elif mode == "Evaluate Quality":
                     provider="ollama-local",
                     ollama_model=ollama_model,
                     ollama_host=ollama_host,
-                    finetuned=is_ft,
                     truncation_limit=effective_truncation,
                 )
                 if pred is None:
@@ -515,7 +424,13 @@ elif mode == "Evaluate Quality":
             all_config_metrics[config_key] = metrics
             
             df_metrics = results_to_dataframe(metrics)
-            st.dataframe(df_metrics, use_container_width=True)
+            st.dataframe(df_metrics, width='stretch')
+
+            json_path = output_dir / f"{config_key}_metrics.json"
+            csv_path = output_dir / f"{config_key}_metrics.csv"
+            with json_path.open("w", encoding="utf-8") as fh:
+                json.dump(metrics, fh, indent=2, ensure_ascii=False)
+            df_metrics.to_csv(csv_path, index=False)
 
         if len(all_config_metrics) > 1:
             st.write("### Comparison Summary")
@@ -528,6 +443,15 @@ elif mode == "Evaluate Quality":
                     "Recall": round(macro["recall"], 3),
                     "F1 Score": round(macro["f1"], 3)
                 })
-            st.table(pd.DataFrame(comparison_rows))
+            comparison_df = pd.DataFrame(comparison_rows)
+            st.table(comparison_df)
+
+            comparison_json = output_dir / "comparison_summary.json"
+            comparison_csv = output_dir / "comparison_summary.csv"
+            with comparison_json.open("w", encoding="utf-8") as fh:
+                json.dump(comparison_rows, fh, indent=2, ensure_ascii=False)
+            comparison_df.to_csv(comparison_csv, index=False)
+
+        st.success(f"Saved evaluation outputs to {output_dir}")
 
 

@@ -29,9 +29,6 @@ def get_last_error() -> str:
     return _last_error
 CACHE_DIR = Path("cache")
 
-# ---------------------------------------------------------------------------
-# Field descriptions used in the prompt
-# ---------------------------------------------------------------------------
 FIELD_DESCRIPTIONS = {
     "name": "Full name",
     "email": "Email address",
@@ -63,10 +60,6 @@ FIELD_DESCRIPTIONS = {
     "projects_detailed": "Structured list: {name, tech_stack, description, link, date}",
 }
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _classify_link(url: str) -> str:
     """Classify a URL into a human-readable category."""
@@ -138,18 +131,20 @@ def _map_project_links(projects: list, extracted_links: Optional[list[str]]) -> 
     for proj in projects:
         if not isinstance(proj, dict):
             continue
-        if proj.get("link") and str(proj.get("link")).lower() != "github":
+        if proj.get("link") and str(proj.get("link")).strip().lower() not in ("github", "link", "null", "none", "n/a"):
             continue
         name = proj.get("name") or ""
         if not name:
             continue
         name_slug = _slug(name)
+        name_tokens = set(name_slug.split("-")) - {""}
         for link in gh_links:
             repo = _repo_slug(link)
             if not repo:
                 continue
             repo_slug = _slug(repo)
-            if repo_slug and (repo_slug in name_slug or name_slug in repo_slug):
+            repo_tokens = set(repo_slug.split("-")) - {""}
+            if repo_slug and (repo_slug in name_slug or name_slug in repo_slug or repo_tokens.intersection(name_tokens)):
                 proj["link"] = link
                 break
 
@@ -362,10 +357,6 @@ def _merge_section_results(selected_fields: list[str], parts: list[dict]) -> dic
     return merged
 
 
-# ---------------------------------------------------------------------------
-# JSON parsing
-# ---------------------------------------------------------------------------
-
 def _extract_json_object(text: str) -> dict:
     """Robustly extract JSON object from LLM response."""
     def _repair_json_text(raw: str) -> str:
@@ -471,15 +462,10 @@ def _clean_payload(data: dict, selected_fields: list[str]) -> dict:
     return out
 
 
-# ---------------------------------------------------------------------------
-# SHA-256 result caching
-# ---------------------------------------------------------------------------
-
 def _cache_key(
     resume_text: str,
     provider: str,
     model: str,
-    finetuned: bool,
     selected_fields: list[str],
     truncation_limit: int,
 ) -> str:
@@ -490,7 +476,6 @@ def _cache_key(
         text_to_hash
         + "|" + provider
         + "|" + model
-        + "|" + str(finetuned)
         + "|" + ",".join(sorted(selected_fields))
         + "|" + str(truncation_limit)
     )
@@ -520,29 +505,21 @@ def _save_to_cache(key: str, data: dict) -> None:
         pass
 
 
-# ---------------------------------------------------------------------------
-# Provider implementations
-# ---------------------------------------------------------------------------
-
 def extract_with_ollama(
     resume_text, model_name, host, selected_fields,
-    finetuned=False, extracted_links=None, truncation_limit=8000
+    extracted_links=None, truncation_limit=8000
 ):
     """Extract entities using local Ollama model."""
     global _last_error
     try:
         import requests
-        # For speed: avoid embedding few-shot examples inline in the prompt for Ollama.
-        # If you want few-shot behavior with low latency, create a local Ollama model
-        # (see `finetune_ollama.py`) that embeds examples in the Modelfile and then
-        # use that model name (e.g., 'resume-parser-local').
         prompt = _build_prompt(resume_text, selected_fields, fewshot=False,
                     extracted_links=extracted_links, truncation_limit=truncation_limit)
         template = _build_json_template(selected_fields)
         endpoint = host.rstrip("/") + "/api/chat"
         logger.info(f"Calling Ollama at {endpoint} with model {model_name}")
         # adapt generation options for faster response
-        if truncation_limit <= 4000:
+        if truncation_limit <= 6000:
             num_predict = 256
             num_ctx = 1024
         else:
@@ -620,7 +597,7 @@ def extract_with_ollama(
         text = _ollama_content_from_response(response)
         logger.info(f"Ollama response length: {len(text)} chars")
 
-        print("[Ollama RAW]", text)
+        logger.info("Ollama raw response length: %s", len(text))
         parsed = _extract_json_object(text)
         if not parsed:
             # retry once with a stricter prompt to force JSON only
@@ -638,7 +615,7 @@ def extract_with_ollama(
                 response = requests.post(endpoint, json=payload, timeout=timeout_secs)
                 response.raise_for_status()
                 text_retry = _ollama_content_from_response(response)
-                print("[Ollama RAW - RETRY]", text_retry)
+                logger.info("Ollama retry response length: %s", len(text_retry))
                 parsed = _extract_json_object(text_retry)
             except Exception as re_err:
                 _last_error = f"Ollama retry failed: {re_err}"
@@ -683,7 +660,7 @@ def extract_with_ollama(
                 response = requests.post(endpoint, json=payload, timeout=timeout_secs)
                 response.raise_for_status()
                 text_retry = _ollama_content_from_response(response)
-                print("[Ollama RAW - SPARSE RETRY]", text_retry)
+                logger.info("Ollama sparse retry response length: %s", len(text_retry))
                 parsed_retry = _extract_json_object(text_retry)
                 if parsed_retry:
                     parsed = parsed_retry
@@ -736,7 +713,7 @@ def extract_with_ollama(
 
 def extract_with_gemini(
     resume_text, api_key, model_name, selected_fields,
-    finetuned=False, extracted_links=None, truncation_limit=8000
+    extracted_links=None, truncation_limit=8000
 ):
     """Extract entities using Google Gemini API."""
     global _last_error
@@ -753,8 +730,8 @@ def extract_with_gemini(
             ),
         )
 
-        prompt = _build_prompt(resume_text, selected_fields, fewshot=finetuned,
-                                extracted_links=extracted_links, truncation_limit=truncation_limit)
+        prompt = _build_prompt(resume_text, selected_fields, fewshot=False,
+                    extracted_links=extracted_links, truncation_limit=truncation_limit)
         
         # simple retry logic for rate limits
         response = None
@@ -797,10 +774,6 @@ def extract_with_gemini(
         return None
 
 
-# ---------------------------------------------------------------------------
-# Unified entry point
-# ---------------------------------------------------------------------------
-
 def extract_entities(
     resume_text,
     provider="ollama-local",
@@ -809,7 +782,6 @@ def extract_entities(
     gemini_api_key=None,
     gemini_model=None,
     selected_fields=None,
-    finetuned=False,
     extracted_links=None,
     use_cache=True,
     truncation_limit=8000,
@@ -822,7 +794,7 @@ def extract_entities(
     selected = _normalize_selected_fields(selected_fields)
 
     if provider != "ollama-local":
-        print("[Provider] Gemini is disabled. Use Ollama.")
+        logger.info("Gemini is disabled. Use Ollama.")
         return None
 
     model = ollama_model or os.getenv("OLLAMA_MODEL", "llama3.2:3b")
@@ -832,12 +804,12 @@ def extract_entities(
 
     # check cache
     if use_cache:
-        key = _cache_key(resume_text, provider, model, finetuned, selected, truncation_limit)
+        key = _cache_key(resume_text, provider, model, selected, truncation_limit)
         cached = _load_from_cache(key)
         if cached is not None:
             try:
                 entity = ResumeEntity(**cached)
-                print(f"[Cache HIT] Loaded cached result for {provider}/{model}")
+                logger.info("Cache hit for %s/%s", provider, model)
                 return entity
             except Exception:
                 pass  # cache corrupted, re-extract
@@ -867,7 +839,6 @@ def extract_entities(
             text_chunk = sections.get(sec) or resume_text
             part_entity = extract_with_ollama(
                 text_chunk, model, host, fields,
-                finetuned=finetuned,
                 extracted_links=extracted_links if sec == "contact" else None,
                 truncation_limit=truncation_limit,
             )
@@ -886,14 +857,14 @@ def extract_entities(
                 merged["projects_detailed"] = _map_project_links(merged["projects_detailed"], extracted_links)
             entity = ResumeEntity(**merged)
             if use_cache:
-                key = _cache_key(resume_text, provider, model, finetuned, selected, truncation_limit)
+                key = _cache_key(resume_text, provider, model, selected, truncation_limit)
                 _save_to_cache(key, entity.model_dump())
             return entity
 
     # call provider
     entity = extract_with_ollama(
         resume_text, model, host, selected,
-        finetuned=finetuned, extracted_links=extracted_links,
+        extracted_links=extracted_links,
         truncation_limit=truncation_limit
     )
 
@@ -909,7 +880,7 @@ def extract_entities(
 
     # save to cache
     if entity is not None and use_cache:
-        key = _cache_key(resume_text, provider, model, finetuned, selected, truncation_limit)
+        key = _cache_key(resume_text, provider, model, selected, truncation_limit)
         _save_to_cache(key, entity.model_dump())
 
     return entity
