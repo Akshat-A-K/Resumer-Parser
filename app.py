@@ -4,17 +4,15 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
-import time
 
 from evaluator import annotations_to_entity, evaluate_batch, load_ground_truth, results_to_dataframe
-from llm_parser import clear_cache, extract_entities, get_cache_stats, get_last_error
+from llm_parser import extract_entities, get_last_error
 from ocr_extractor import (
     extract_text_and_links_from_bytes,
     extract_text_from_image_bytes,
@@ -27,13 +25,9 @@ from schema import (
 
 load_dotenv()
 
-st.set_page_config(page_title="T13.1 Resume Parser", page_icon="", layout="wide")
-st.title("T13.1 Smart Document Parser")
+st.set_page_config(page_title="Resume Parser", page_icon="", layout="wide")
+st.title("Smart Document Parser")
 
-
-# ---------------------------------------------------------------------------
-# File parsing (returns text + links)
-# ---------------------------------------------------------------------------
 
 def parse_uploaded_file(uploaded_file) -> tuple[str, list[str]]:
     """Parse uploaded file and return (extracted_text, extracted_links)."""
@@ -79,7 +73,7 @@ def _classify_link(url: str) -> str:
     if "linkedin.com" in url_lower:
         return "LinkedIn Profile"
 
-    # GitHub — profile vs project
+    # GitHub  profile vs project
     if "github.com" in url_lower:
         # Extract path parts after github.com
         import re
@@ -129,11 +123,6 @@ def _classify_link(url: str) -> str:
 
     return "Link"
 
-
-def _selected_index(options, value):
-    return options.index(value) if value in options else 0
-
-
 def _find_ollama_cli():
     found = shutil.which("ollama")
     if found:
@@ -182,20 +171,6 @@ def get_ollama_model_options(current_model):
     return options
 
 
-def run_python_script(script_name, args=None):
-    script_path = Path(script_name)
-    if not script_path.exists():
-        return False, f"Script not found: {script_name}"
-
-    result = subprocess.run(
-        [sys.executable, script_name] + (args or []),
-        capture_output=True, text=True,
-        cwd=Path(__file__).resolve().parent,
-    )
-    combined = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
-    return result.returncode == 0, combined.strip()
-
-
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
@@ -203,118 +178,36 @@ def run_python_script(script_name, args=None):
 with st.sidebar:
     st.header("Configuration")
 
-    st.subheader("Model Provider")
-    provider = st.radio(
-        "Choose provider",
-        ["ollama-local", "gemini-api"],
-        format_func=lambda x: "Ollama (Local)" if x == "ollama-local" else "Gemini (API)",
+    st.subheader("Model Selection")
+    model_choice = st.radio(
+        "Choose model",
+        ["ollama-basic", "ollama-finetuned"],
+        format_func=lambda x: {
+            "ollama-basic": "Ollama (Basic)",
+            "ollama-finetuned": "Ollama (Finetuned)",
+        }[x],
         index=0,
     )
-
-    st.subheader("Extraction Mode")
-    finetuned = st.toggle(
-        "Use Finetuned Mode",
-        value=False,
-        help="When enabled, uses fewshot examples from training data for better results.",
-    )
+    provider = "ollama-local"
+    finetuned = "finetuned" in model_choice
 
     st.markdown("---")
 
     # initialize all provider vars to prevent NameErrors
     ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     ollama_model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
-    gemini_api_key = os.getenv("GEMINI_API_KEY", "")
-    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-
     if provider == "ollama-local":
-        st.subheader("Ollama Settings")
-        ollama_host = st.text_input("Host", value=ollama_host)
         ollama_model_options = get_ollama_model_options(ollama_model)
-
-        # Offer quick creation of a local finetuned model (Modelfile-based few-shot)
-        if st.button("Build local finetuned model (resume-parser-local)"):
-            with st.spinner("Creating local Ollama model (may take a few minutes)..."):
-                ok, out = run_python_script("finetune_ollama.py", args=["--base-model", ollama_model, "--new-model", "resume-parser-local"])
-                if ok:
-                    st.success("Local model created: resume-parser-local")
-                else:
-                    st.error(f"Failed to create model: {out}")
-
-        # Warm the selected model in background to avoid long first-request delays
-        try:
-            import threading, requests
-
-            def _warm_model_once(host, model):
-                try:
-                    url = host.rstrip("/") + "/api/chat"
-                    payload = {
-                        "model": model,
-                        "stream": False,
-                        "options": {"temperature": 0, "num_predict": 16, "num_ctx": 512},
-                        "messages": [{"role": "user", "content": "Say hi"}],
-                    }
-                    # long timeout here because loading may take time; run in background
-                    requests.post(url, json=payload, timeout=120)
-                except Exception:
-                    pass
-
-            if "_ollama_warmed" not in st.session_state and ollama_model:
-                # start background thread to warm model
-                t = threading.Thread(target=_warm_model_once, args=(ollama_host, ollama_model), daemon=True)
-                t.start()
-                st.session_state["_ollama_warmed"] = True
-        except Exception:
-            pass
-
         if finetuned:
-            st.caption("Finetuned mode: using specialized model")
-            ollama_model = st.selectbox(
-                "Model", options=ollama_model_options,
-                index=_selected_index(ollama_model_options, "resume-parser-local"),
-            )
+            ollama_model = "resume-parser-local-3b"
         else:
-            ollama_model = st.selectbox(
-                "Model", options=ollama_model_options,
-                index=_selected_index(ollama_model_options, ollama_model),
-            )
-    else:
-        st.subheader("Gemini Settings")
-        gemini_api_key = st.text_input("API Key", value=gemini_api_key, type="password")
-        gemini_model = st.text_input("Model", value=gemini_model)
-        if finetuned:
-            st.caption("Finetuned mode: using fewshot enhanced prompt")
+            if ollama_model not in ollama_model_options and ollama_model_options:
+                ollama_model = ollama_model_options[0]
 
-    st.markdown("---")
-    st.subheader("Performance Settings")
-    truncation_limit = st.slider(
-        "Text Truncation Limit",
-        min_value=2000, max_value=12000, value=6000, step=1000,
-        help="Higher = more context but slower. 4000-6000 is usually plenty."
-    )
+    truncation_limit = 6000
     
-    st.subheader("Field Presets")
-    c1, c2 = st.columns(2)
-    if c1.button("Core Only"):
-        st.session_state["selected_fields"] = ["name", "email", "phone", "skills_categorized", "location"]
-        st.rerun()
-    if c2.button("Reset Selection"):
-        st.session_state["selected_fields"] = default_selected_fields()
-        st.rerun()
-
-    st.markdown("---")
-
-    # cache controls
-    st.subheader("Cache")
-    cache_stats = get_cache_stats()
-    st.caption(f"Cached results: **{cache_stats['count']}** ({cache_stats['size_mb']} MB)")
-    if st.button("Clear Cache", key="clear_cache_btn"):
-        removed = clear_cache()
-        st.success(f"Cleared {removed} cached results")
-        st.rerun()
-
-    st.markdown("---")
     st.subheader("Workflow")
-    mode = st.radio("Choose task", ["Parse One Resume", "Evaluate Quality", "Finetune Models"], index=0)
+    mode = st.radio("Choose task", ["Parse One Resume", "Evaluate Quality"], index=0)
 
 
 # ---------------------------------------------------------------------------
@@ -333,15 +226,15 @@ def render_structured_field(field_name: str, entries: list):
             header = e.get("degree", "Education") or "Education"
             inst = e.get("institution", "")
             if inst:
-                header = f"{header} — {inst}"
-            with st.expander(f"🎓 {header}", expanded=(i == 0)):
+                header = f"{header}  {inst}"
+            with st.expander(f" {header}", expanded=(i == 0)):
                 cols = st.columns(2)
-                cols[0].markdown(f"**Institution:** {e.get('institution') or '—'}")
-                cols[0].markdown(f"**Degree:** {e.get('degree') or '—'}")
-                cols[0].markdown(f"**Field of Study:** {e.get('field_of_study') or '—'}")
-                cols[1].markdown(f"**CGPA/GPA:** {e.get('cgpa') or '—'}")
-                cols[1].markdown(f"**Location:** {e.get('location') or '—'}")
-                period = f"{e.get('start_year', '?')} – {e.get('end_year', '?')}"
+                cols[0].markdown(f"**Institution:** {e.get('institution') or ''}")
+                cols[0].markdown(f"**Degree:** {e.get('degree') or ''}")
+                cols[0].markdown(f"**Field of Study:** {e.get('field_of_study') or ''}")
+                cols[1].markdown(f"**CGPA/GPA:** {e.get('cgpa') or ''}")
+                cols[1].markdown(f"**Location:** {e.get('location') or ''}")
+                period = f"{e.get('start_year', '?')}  {e.get('end_year', '?')}"
                 cols[1].markdown(f"**Period:** {period}")
 
     elif field_name == "experience_details":
@@ -351,12 +244,12 @@ def render_structured_field(field_name: str, entries: list):
             comp = e.get("company", "")
             if comp:
                 header = f"{header} @ {comp}"
-            with st.expander(f"💼 {header}", expanded=(i == 0)):
+            with st.expander(f" {header}", expanded=(i == 0)):
                 cols = st.columns(2)
-                cols[0].markdown(f"**Company:** {e.get('company') or '—'}")
-                cols[0].markdown(f"**Role:** {e.get('role') or '—'}")
-                cols[0].markdown(f"**Location:** {e.get('location') or '—'}")
-                period = f"{e.get('start_date', '?')} – {e.get('end_date', '?')}"
+                cols[0].markdown(f"**Company:** {e.get('company') or ''}")
+                cols[0].markdown(f"**Role:** {e.get('role') or ''}")
+                cols[0].markdown(f"**Location:** {e.get('location') or ''}")
+                period = f"{e.get('start_date', '?')}  {e.get('end_date', '?')}"
                 cols[1].markdown(f"**Period:** {period}")
                 tech = e.get("tech_stack", [])
                 if tech:
@@ -369,15 +262,24 @@ def render_structured_field(field_name: str, entries: list):
         for i, entry in enumerate(entries):
             e = entry if isinstance(entry, dict) else entry.model_dump()
             header = e.get("name", "Project") or "Project"
-            with st.expander(f"🔨 {header}", expanded=(i == 0)):
+            with st.expander(f" {header}", expanded=(i == 0)):
                 cols = st.columns(2)
-                cols[0].markdown(f"**Name:** {e.get('name') or '—'}")
+                cols[0].markdown(f"**Name:** {e.get('name') or ''}")
                 tech = e.get("tech_stack", [])
                 if tech:
                     cols[0].markdown(f"**Tech Stack:** {', '.join(tech)}")
                 link = e.get("link")
                 if link:
-                    cols[1].markdown(f"**Link:** [{link}]({link})")
+                    link_str = str(link).strip()
+                    if link_str.lower().startswith(("http://", "https://")):
+                        label = _classify_link(link_str)
+                        cols[1].markdown(f"**Link:** [{label}]({link_str})")
+                    elif "." in link_str and " " not in link_str:
+                        href = "https://" + link_str
+                        label = _classify_link(href)
+                        cols[1].markdown(f"**Link:** [{label}]({href})")
+                    else:
+                        cols[1].markdown(f"**Link:** {link_str}")
                 date = e.get("date")
                 if date:
                     cols[1].markdown(f"**Date:** {date}")
@@ -437,29 +339,25 @@ if mode == "Parse One Resume":
 
         if st.button("Step 3: Run Extraction", type="primary"):
             mode_label = "Finetuned" if finetuned else "Direct"
-            provider_label = "Ollama" if provider == "ollama-local" else "Gemini"
+            provider_label = "Ollama"
             with st.spinner(f"Running {provider_label} ({mode_label})..."):
                     t0 = time.time()
+                    effective_truncation = len(text)
                     entity = extract_entities(
                         text,
                         provider=provider,
                         ollama_model=ollama_model,
                         ollama_host=ollama_host,
-                        gemini_api_key=gemini_api_key,
-                        gemini_model=gemini_model,
                         selected_fields=selected_fields,
                         finetuned=finetuned,
                         extracted_links=extracted_links,
-                        truncation_limit=truncation_limit,
+                        truncation_limit=effective_truncation,
                     )
                     duration = time.time() - t0
 
             if entity is None:
                 err = get_last_error()
-                if "429" in str(err) or "quota" in str(err).lower():
-                    st.error(f"Gemini Quota Exceeded. Please switch to **Ollama** in the sidebar to continue extraction without limits.")
-                else:
-                    st.error(f"Extraction failed: {err}" if err else "Extraction failed. Check model settings.")
+                st.error(f"Extraction failed: {err}" if err else "Extraction failed. Check model settings.")
                 st.stop()
 
             # display duration if available
@@ -485,7 +383,7 @@ if mode == "Parse One Resume":
             # --- Structured data display ---
             structured_in_selection = [f for f in STRUCTURED_FIELDS if f in selected_fields_render]
             if "skills_categorized" in data and data["skills_categorized"]:
-                st.write("#### 🛠️ Skills by Category")
+                st.write("####  Skills by Category")
                 cols = st.columns(2)
                 idx = 0
                 for cat, skills in data["skills_categorized"].items():
@@ -539,24 +437,13 @@ if mode == "Parse One Resume":
 
             # --- Download buttons (always visible because data is in session_state) ---
             json_str = json.dumps(filtered, indent=2, ensure_ascii=False, default=str)
-            col1, col2 = st.columns(2)
-            with col1:
-                st.download_button(
-                    "⬇️ Download JSON",
-                    data=json_str,
-                    file_name="resume_parsed.json",
-                    mime="application/json",
-                    key="download_json",
-                )
-            with col2:
-                csv_payload = pd.DataFrame([entity_to_row(entity, selected_fields_render)]).to_csv(index=False)
-                st.download_button(
-                    "⬇️ Download CSV",
-                    data=csv_payload,
-                    file_name="resume_parsed.csv",
-                    mime="text/csv",
-                    key="download_csv",
-                )
+            st.download_button(
+                " Download JSON",
+                data=json_str,
+                file_name="resume_parsed.json",
+                mime="application/json",
+                key="download_json",
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -574,12 +461,8 @@ elif mode == "Evaluate Quality":
 
     samples = st.slider("Samples", min_value=5, max_value=220, value=10, step=5)
     
-    eval_configs = st.multiselect(
-        "Configurations to evaluate",
-        options=["ollama-direct", "ollama-finetuned", "gemini-direct", "gemini-finetuned"],
-        default=[f"{provider.replace('-local', '').replace('-api', '')}-{'finetuned' if finetuned else 'direct'}"],
-        help="Select one or more configurations to compare."
-    )
+    eval_configs = ["ollama-direct", "ollama-finetuned"]
+    st.caption("Evaluates Ollama direct vs finetuned")
 
     if st.button("Run Evaluation", type="primary"):
         if not eval_configs:
@@ -601,7 +484,6 @@ elif mode == "Evaluate Quality":
         
         for config_key in eval_configs:
             is_ft = "finetuned" in config_key
-            is_gemini = "gemini" in config_key
             label = config_key.replace("-", " ").title()
             
             st.write(f"### Evaluating {label}...")
@@ -614,20 +496,20 @@ elif mode == "Evaluate Quality":
                 if not content:
                     continue
 
+                effective_truncation = len(content)
                 pred = extract_entities(
                     content,
-                    provider="gemini-api" if is_gemini else "ollama-local",
+                    provider="ollama-local",
                     ollama_model=ollama_model,
                     ollama_host=ollama_host,
-                    gemini_api_key=gemini_api_key,
-                    gemini_model=gemini_model,
                     finetuned=is_ft,
+                    truncation_limit=effective_truncation,
                 )
                 if pred is None:
                     pred = ResumeEntity()
                 predictions.append(pred)
                 # larger sleep for batch mode to respect rate limits
-                time.sleep(1.0 if is_gemini else 0.1)
+                time.sleep(0.1)
 
             metrics = evaluate_batch(predictions, ground_truths)
             all_config_metrics[config_key] = metrics
@@ -649,130 +531,3 @@ elif mode == "Evaluate Quality":
             st.table(pd.DataFrame(comparison_rows))
 
 
-# ---------------------------------------------------------------------------
-# Finetune Models
-# ---------------------------------------------------------------------------
-
-else:
-    st.subheader("Finetune Models")
-    st.caption("Prepare training data and create finetuned models for better extraction results.")
-
-    def show_step(script_name, title, args=None):
-        with st.spinner(f"Running {script_name}..."):
-            ok, output = run_python_script(script_name, args)
-        if ok:
-            st.success(f"{title} completed")
-            if output:
-                st.text_area(f"{title} output", output, height=180)
-        else:
-            st.error(f"{title} failed")
-            if output:
-                st.text_area(f"{title} error output", output, height=220)
-        return ok
-
-    tab_prepare, tab_ollama, tab_gemini, tab_eval = st.tabs([
-        "Prepare Data", "Finetune Ollama", "Finetune Gemini", "Evaluate Finetuned",
-    ])
-
-    with tab_prepare:
-        st.markdown("### Prepare Training Data")
-        st.write(
-            "Converts the labeled dataset into training pairs (resume text to expected JSON output). "
-            "Splits 80/10/10 with seed=42. Selects best fewshot examples."
-        )
-
-        col1, col2 = st.columns(2)
-        src_ner = Path("Entity Recognition in Resumes.json")
-        src_csv = Path("Resume/Resume.csv")
-        src_pdf = Path("data/data")
-
-        col1.markdown(f"**NER Dataset**: {'found' if src_ner.exists() else 'missing'}")
-        col1.markdown(f"**Resume CSV**: {'found' if src_csv.exists() else 'missing'}")
-        col2.markdown(f"**PDF Corpus**: {'found' if src_pdf.exists() else 'missing'}")
-
-        splits_dir = Path("splits")
-        if splits_dir.exists() and (splits_dir / "split_stats.json").exists():
-            with (splits_dir / "split_stats.json").open("r") as f:
-                stats = json.load(f)
-            col2.markdown(f"**Existing splits**: Train={stats.get('train_count', '?')} | "
-                         f"Val={stats.get('val_count', '?')} | Test={stats.get('test_count', '?')}")
-
-        if st.button("Prepare Splits", type="primary", key="run_prepare"):
-            show_step("finetune_prepare.py", "Data Preparation")
-
-    with tab_ollama:
-        st.markdown("### Finetune Ollama Model")
-        st.write(
-            "Creates a specialized Ollama model with a comprehensive system prompt "
-            "and embedded fewshot examples from the training data."
-        )
-
-        ollama_model_options_ft = get_ollama_model_options(os.getenv("OLLAMA_MODEL", "llama3.2:3b"))
-        ft_base = st.selectbox(
-            "Base model", options=ollama_model_options_ft,
-            index=_selected_index(ollama_model_options_ft, "llama3.2:3b"),
-            key="ft_ollama_base",
-        )
-        ft_name = st.text_input("New model name", value="resume-parser-local", key="ft_ollama_name")
-
-        fewshot_path = Path("splits/fewshot_examples.json")
-        if fewshot_path.exists():
-            with fewshot_path.open("r") as f:
-                fewshot_data = json.load(f)
-            st.info(f"{len(fewshot_data)} fewshot examples available from training data")
-
-        if st.button("Create Finetuned Ollama Model", type="primary", key="run_ollama_ft"):
-            show_step("finetune_ollama.py", "Ollama Finetuning",
-                     ["--base-model", ft_base, "--new-model", ft_name])
-
-    with tab_gemini:
-        st.markdown("### Finetune Gemini")
-        st.write(
-            "Prepares enhanced fewshot prompt for Gemini API. "
-            "Tests extraction quality with the enhanced prompt."
-        )
-
-        gemini_key_ft = st.text_input(
-            "Gemini API Key", value=os.getenv("GEMINI_API_KEY", ""),
-            type="password", key="ft_gemini_key",
-        )
-        gemini_model_ft = st.text_input(
-            "Gemini Model", value=os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
-            key="ft_gemini_model",
-        )
-        test_samples_ft = st.number_input("Test samples", min_value=1, max_value=10, value=3, key="ft_test_samples")
-
-        if st.button("Validate Gemini Finetuning", type="primary", key="run_gemini_ft"):
-            if not gemini_key_ft:
-                st.error("Set GEMINI_API_KEY first")
-            else:
-                show_step("finetune_gemini.py", "Gemini Finetuning",
-                         ["--test-samples", str(test_samples_ft), "--model", gemini_model_ft])
-
-    with tab_eval:
-        st.markdown("### Evaluate Finetuned Models")
-        st.write("Run evaluation on test split using finetuned models and compare with direct mode.")
-
-        test_path = Path("splits/test.jsonl")
-        if not test_path.exists():
-            st.warning("Test split not found. Run Prepare Data first.")
-        else:
-            with test_path.open("r") as f:
-                test_count = sum(1 for line in f if line.strip())
-            st.info(f"{test_count} test samples available")
-
-        eval_samples = st.slider("Samples to evaluate", min_value=5, max_value=50, value=10, key="eval_samples")
-        eval_configs = st.multiselect(
-            "Configurations to evaluate",
-            options=["ollama-direct", "ollama-finetuned", "gemini-direct", "gemini-finetuned"],
-            default=["ollama-direct", "ollama-finetuned"],
-            key="eval_configs",
-        )
-
-        if st.button("Run Evaluation", type="primary", key="run_ft_eval"):
-            if not eval_configs:
-                st.error("Select at least one configuration")
-            else:
-                configs_str = ",".join(eval_configs)
-                show_step("finetune_evaluate.py", "Finetuned Evaluation",
-                         ["--samples", str(eval_samples), "--configs", configs_str])

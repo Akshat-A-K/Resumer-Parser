@@ -40,7 +40,7 @@ class ProjectEntry(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Field specifications (flat fields — backward compatible)
+# Field specifications (flat fields  backward compatible)
 # ---------------------------------------------------------------------------
 
 FIELD_SPECS = {

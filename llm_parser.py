@@ -104,6 +104,57 @@ def _classify_link(url: str) -> str:
         return "Email"
     return "Link"
 
+
+def _map_project_links(projects: list, extracted_links: Optional[list[str]]) -> list:
+    """Map GitHub project URLs to projects_detailed entries when missing."""
+    if not projects or not extracted_links:
+        return projects
+
+    def _repo_slug(url: str) -> Optional[str]:
+        m = re.search(r"github\.com/([^/]+)/([^/?#]+)", url, re.IGNORECASE)
+        if not m:
+            return None
+        return m.group(2)
+
+    def _slug(text: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+    gh_links = []
+    for link in extracted_links:
+        if _repo_slug(link):
+            gh_links.append(link)
+
+    if not gh_links:
+        return projects
+
+    # if only one project and one link, map directly
+    if len(projects) == 1 and len(gh_links) == 1:
+        proj = projects[0]
+        if isinstance(proj, dict) and (not proj.get("link") or str(proj.get("link")).lower() == "github"):
+            proj["link"] = gh_links[0]
+        return projects
+
+    # map by slug overlap
+    for proj in projects:
+        if not isinstance(proj, dict):
+            continue
+        if proj.get("link") and str(proj.get("link")).lower() != "github":
+            continue
+        name = proj.get("name") or ""
+        if not name:
+            continue
+        name_slug = _slug(name)
+        for link in gh_links:
+            repo = _repo_slug(link)
+            if not repo:
+                continue
+            repo_slug = _slug(repo)
+            if repo_slug and (repo_slug in name_slug or name_slug in repo_slug):
+                proj["link"] = link
+                break
+
+    return projects
+
 def _normalize_selected_fields(selected_fields: Optional[list[str]]) -> list[str]:
     if not selected_fields:
         return default_selected_fields()
@@ -160,6 +211,20 @@ def _build_schema_block(selected_fields: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _build_json_template(selected_fields: list[str]) -> str:
+    """Build a strict JSON template with all keys present."""
+    def _default_for_field(field: str):
+        kind = FIELD_SPECS.get(field, {}).get("kind", "string")
+        if kind in ("list", "structured"):
+            return []
+        if kind == "dict":
+            return {}
+        return None
+
+    template = {field: _default_for_field(field) for field in selected_fields}
+    return json.dumps(template, ensure_ascii=False)
+
+
 def _load_fewshot_examples() -> list[dict]:
     """Load curated fewshot examples from splits directory."""
     if not FEWSHOT_PATH.exists():
@@ -193,8 +258,8 @@ def _build_fewshot_block(examples: list[dict], selected_fields: list[str]) -> st
 
 
 SYSTEM_PROMPT = (
-    "You are a precise resume parser. Extract information from the text into the requested JSON schema. "
-    "Return ONLY valid JSON. No explanations. Use null if not found. For lists, use []. "
+    "You are a precise resume parser. Extract information ONLY from the provided text into the requested JSON schema. "
+    "Do not fabricate values. Return ONLY valid JSON. No explanations. Use null if not found. For lists, use []. "
     "For structured fields, create a separate object for EACH entry."
 )
 
@@ -207,9 +272,16 @@ def _build_prompt(
     truncation_limit: int = 8000,
 ) -> str:
     schema_block = _build_schema_block(selected_fields)
+    template = _build_json_template(selected_fields)
+    allowed_keys = ", ".join(selected_fields)
 
     prompt_parts = [
         "Extract the requested fields from the resume text below.\n",
+        "IMPORTANT: Return ONLY a single JSON object.\n",
+        "IMPORTANT: Use ONLY the keys listed in the schema. Do NOT add any extra keys.\n",
+        "If a value is missing, use null for strings and [] for lists.\n",
+        f"Allowed keys: {allowed_keys}\n",
+        f"JSON template (fill values only, keep keys):\n{template}\n",
         f"Schema (return exactly these keys):\n{schema_block}\n",
     ]
 
@@ -222,7 +294,7 @@ def _build_prompt(
         links_block = "\n".join(classified)
         prompt_parts.append(
             f"Links found in the document (use these for linkedin, github, portfolio, "
-            f"twitter, other_links fields — labels indicate the link type):\n{links_block}\n"
+            f"twitter, other_links fields  labels indicate the link type):\n{links_block}\n"
         )
 
     if fewshot:
@@ -238,12 +310,74 @@ def _build_prompt(
     return "\n".join(prompt_parts)
 
 
+def _split_sections(resume_text: str) -> dict:
+    """Split resume text into coarse sections by headings."""
+    headings = {
+        "education": "education",
+        "experience": "experience",
+        "projects": "projects",
+        "technical skills": "skills",
+        "skills": "skills",
+        "achievements": "achievements",
+        "co-curricular activities": "activities",
+        "activities": "activities",
+    }
+
+    sections = {"contact": []}
+    current = "contact"
+    for line in resume_text.splitlines():
+        ln = line.strip()
+        if not ln:
+            continue
+        key = ln.lower()
+        if key in headings:
+            current = headings[key]
+            sections.setdefault(current, [])
+            continue
+        sections.setdefault(current, []).append(ln)
+
+    return {k: "\n".join(v) for k, v in sections.items()}
+
+
+def _merge_section_results(selected_fields: list[str], parts: list[dict]) -> dict:
+    """Merge partial outputs into a full schema payload."""
+    merged = {f: None for f in selected_fields}
+    for f in selected_fields:
+        kind = FIELD_SPECS.get(f, {}).get("kind", "string")
+        if kind in ("list", "structured"):
+            merged[f] = []
+        elif kind == "dict":
+            merged[f] = {}
+
+    for part in parts:
+        for k, v in part.items():
+            if k not in merged:
+                continue
+            if isinstance(merged[k], list) and isinstance(v, list):
+                merged[k].extend(v)
+            elif isinstance(merged[k], dict) and isinstance(v, dict):
+                merged[k].update(v)
+            elif merged[k] in (None, ""):
+                merged[k] = v
+    return merged
+
+
 # ---------------------------------------------------------------------------
 # JSON parsing
 # ---------------------------------------------------------------------------
 
 def _extract_json_object(text: str) -> dict:
     """Robustly extract JSON object from LLM response."""
+    def _repair_json_text(raw: str) -> str:
+        # fix common LLM JSON mistakes without being too aggressive
+        repaired = raw
+        repaired = re.sub(r"\bNULL\b", "null", repaired, flags=re.IGNORECASE)
+        repaired = re.sub(r"\bNone\b", "null", repaired)
+        repaired = re.sub(r"\bNaN\b", "null", repaired)
+        # insert missing commas between values and next key
+        repaired = re.sub(r"([0-9\"\}\]])\s*(\")", r"\1, \2", repaired)
+        return repaired
+
     cleaned = text.strip()
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
     cleaned = re.sub(r"\s*```$", "", cleaned)
@@ -251,7 +385,10 @@ def _extract_json_object(text: str) -> dict:
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        pass
+        try:
+            return json.loads(_repair_json_text(cleaned))
+        except json.JSONDecodeError:
+            pass
 
     match = re.search(r"\{[\s\S]*\}", cleaned)
     if not match:
@@ -260,11 +397,15 @@ def _extract_json_object(text: str) -> dict:
     try:
         return json.loads(match.group())
     except json.JSONDecodeError:
-        pass
+        try:
+            return json.loads(_repair_json_text(match.group()))
+        except json.JSONDecodeError:
+            pass
 
     # try fixing trailing commas
     candidate = match.group()
     candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
+    candidate = _repair_json_text(candidate)
     try:
         return json.loads(candidate)
     except json.JSONDecodeError:
@@ -302,7 +443,7 @@ def _clean_payload(data: dict, selected_fields: list[str]) -> dict:
             text = str(value).strip()
             out[field] = text if text and text.lower() not in ("null", "none", "n/a") else None
 
-    # skills_categorized — ensure it's a dict and clean keys/values
+    # skills_categorized  ensure it's a dict and clean keys/values
     if "skills_categorized" in selected_fields:
         raw_skills = data.get("skills_categorized", {})
         if isinstance(raw_skills, dict):
@@ -322,7 +463,7 @@ def _clean_payload(data: dict, selected_fields: list[str]) -> dict:
         if out.get(f) and out[f].startswith("www."):
             out[f] = "https://" + out[f]
 
-    # structured fields — pass through as-is (validators handle normalization)
+    # structured fields  pass through as-is (validators handle normalization)
     for field in STRUCTURED_FIELDS:
         if field in selected_fields and field in data:
             out[field] = data[field]
@@ -379,29 +520,6 @@ def _save_to_cache(key: str, data: dict) -> None:
         pass
 
 
-def clear_cache() -> int:
-    """Clear all cached results. Returns number of files removed."""
-    if not CACHE_DIR.exists():
-        return 0
-    count = 0
-    for f in CACHE_DIR.glob("*.json"):
-        try:
-            f.unlink()
-            count += 1
-        except Exception:
-            pass
-    return count
-
-
-def get_cache_stats() -> dict:
-    """Return cache statistics."""
-    if not CACHE_DIR.exists():
-        return {"count": 0, "size_mb": 0.0}
-    files = list(CACHE_DIR.glob("*.json"))
-    total_size = sum(f.stat().st_size for f in files)
-    return {"count": len(files), "size_mb": round(total_size / (1024 * 1024), 2)}
-
-
 # ---------------------------------------------------------------------------
 # Provider implementations
 # ---------------------------------------------------------------------------
@@ -419,22 +537,25 @@ def extract_with_ollama(
         # (see `finetune_ollama.py`) that embeds examples in the Modelfile and then
         # use that model name (e.g., 'resume-parser-local').
         prompt = _build_prompt(resume_text, selected_fields, fewshot=False,
-                                extracted_links=extracted_links, truncation_limit=truncation_limit)
+                    extracted_links=extracted_links, truncation_limit=truncation_limit)
+        template = _build_json_template(selected_fields)
         endpoint = host.rstrip("/") + "/api/chat"
         logger.info(f"Calling Ollama at {endpoint} with model {model_name}")
         # adapt generation options for faster response
         if truncation_limit <= 4000:
             num_predict = 256
             num_ctx = 1024
-            timeout_secs = 30
         else:
             num_predict = 512
             num_ctx = 2048
-            timeout_secs = 120
+
+        # allow long runs for large inputs/models
+        timeout_secs = 600
 
         payload = {
             "model": model_name,
             "stream": False,
+            "format": "json",
             "options": {
                 "temperature": 0,
                 "num_predict": num_predict,
@@ -455,7 +576,7 @@ def extract_with_ollama(
             logger.info(f"Ollama request finished in {duration:.2f}s (model={model_name}, predict={num_predict})")
             response.raise_for_status()
         except requests.exceptions.ReadTimeout:
-            # retry with minimal generation settings — this helps when model is still loading
+            # retry with minimal generation settings  this helps when model is still loading
             try:
                 logger.warning("Ollama read timeout; retrying with minimal generation settings")
                 small_payload = payload.copy()
@@ -474,12 +595,122 @@ def extract_with_ollama(
             logger.error(_last_error)
             return None
 
-        payload = response.json()
-        message = payload.get("message", {}) if isinstance(payload, dict) else {}
-        text = str(message.get("content", "")).strip()
+        def _ollama_content_from_response(resp) -> str:
+            raw_text = (resp.text or "").strip()
+            try:
+                payload_json = resp.json()
+            except Exception:
+                payload_json = None
+            if isinstance(payload_json, dict):
+                message = payload_json.get("message", {})
+                return str(message.get("content", "")).strip()
+
+            # fallback: try to extract JSON object from raw response text
+            match = re.search(r"\{[\s\S]*\}", raw_text)
+            if match:
+                try:
+                    obj = json.loads(match.group())
+                    if isinstance(obj, dict) and "message" in obj:
+                        message = obj.get("message", {})
+                        return str(message.get("content", "")).strip()
+                except Exception:
+                    pass
+            return raw_text
+
+        text = _ollama_content_from_response(response)
         logger.info(f"Ollama response length: {len(text)} chars")
 
+        print("[Ollama RAW]", text)
         parsed = _extract_json_object(text)
+        if not parsed:
+            # retry once with a stricter prompt to force JSON only
+            retry_prompt = (
+                prompt
+                                + "\n\nReturn ONLY a valid JSON object. No extra text, no markdown, no explanation."
+                                    " Use ONLY the schema keys. Do not fabricate values."
+                                + f"\n\nUse this exact template and fill values only:\n{template}"
+            )
+            payload["messages"] = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": retry_prompt},
+            ]
+            try:
+                response = requests.post(endpoint, json=payload, timeout=timeout_secs)
+                response.raise_for_status()
+                text_retry = _ollama_content_from_response(response)
+                print("[Ollama RAW - RETRY]", text_retry)
+                parsed = _extract_json_object(text_retry)
+            except Exception as re_err:
+                _last_error = f"Ollama retry failed: {re_err}"
+                logger.error(_last_error)
+                return None
+
+        def _is_sparse(payload: dict) -> bool:
+            if not payload:
+                return True
+            non_empty = 0
+            for field in selected_fields:
+                value = payload.get(field)
+                if isinstance(value, list) and value:
+                    non_empty += 1
+                elif isinstance(value, dict) and value:
+                    non_empty += 1
+                elif value not in (None, "", []):
+                    non_empty += 1
+            return non_empty <= 1
+
+        def _has_invalid_keys(payload: dict) -> bool:
+            if not payload:
+                return True
+            allowed = set(selected_fields)
+            keys = set(payload.keys())
+            return len(keys - allowed) > 0
+
+        if parsed and (_is_sparse(parsed) or _has_invalid_keys(parsed)):
+            retry_prompt = (
+                prompt
+                + "\n\nYour last output was too empty. Extract as many fields as possible. "
+                  "If a field exists in the text, do not return null or []."
+                + f"\n\nUse this exact template and fill values only:\n{template}"
+            )
+            if _has_invalid_keys(parsed):
+                retry_prompt += "\n\nRemove ALL keys that are not in the schema."
+            payload["messages"] = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": retry_prompt},
+            ]
+            try:
+                response = requests.post(endpoint, json=payload, timeout=timeout_secs)
+                response.raise_for_status()
+                text_retry = _ollama_content_from_response(response)
+                print("[Ollama RAW - SPARSE RETRY]", text_retry)
+                parsed_retry = _extract_json_object(text_retry)
+                if parsed_retry:
+                    parsed = parsed_retry
+            except Exception as re_err:
+                logger.warning(f"Ollama sparse retry failed: {re_err}")
+
+        def _enforce_schema(payload: dict) -> dict:
+            # keep only schema keys and fill missing keys with null/[]/{} defaults
+            def _default_for_field(field: str):
+                kind = FIELD_SPECS.get(field, {}).get("kind", "string")
+                if kind in ("list", "structured"):
+                    return []
+                if kind == "dict":
+                    return {}
+                return None
+
+            fixed = {}
+            for field in FIELD_SPECS.keys():
+                if field in payload:
+                    fixed[field] = payload[field]
+                else:
+                    fixed[field] = _default_for_field(field)
+            return fixed
+
+        if parsed:
+            parsed = _enforce_schema(parsed)
+
         if not parsed:
             _last_error = f"Failed to parse JSON from Ollama response: {text[:200]}"
             logger.warning(_last_error)
@@ -590,18 +821,14 @@ def extract_entities(
     """
     selected = _normalize_selected_fields(selected_fields)
 
-    # determine model name for cache key
-    if provider == "gemini-api":
-        api_key = gemini_api_key or os.getenv("GEMINI_API_KEY", "")
-        model = gemini_model or os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-        if not api_key:
-            print("[Gemini] No API key set")
-            return None
-    else:
-        model = ollama_model or os.getenv("OLLAMA_MODEL", "llama3.2:3b")
-        host = ollama_host or os.getenv("OLLAMA_HOST", "http://localhost:11434")
-        if not model:
-            return None
+    if provider != "ollama-local":
+        print("[Provider] Gemini is disabled. Use Ollama.")
+        return None
+
+    model = ollama_model or os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+    host = ollama_host or os.getenv("OLLAMA_HOST", "http://localhost:11434")
+    if not model:
+        return None
 
     # check cache
     if use_cache:
@@ -615,23 +842,74 @@ def extract_entities(
             except Exception:
                 pass  # cache corrupted, re-extract
 
+    # section-wise extraction for higher accuracy (multiple calls)
+    multi_section = True
+    if multi_section:
+        sections = _split_sections(resume_text)
+        section_fields = {
+            "contact": [
+                "name", "email", "phone", "location", "linkedin",
+                "github", "portfolio", "twitter", "other_links", "summary",
+            ],
+            "education": ["education_details", "college_name", "degree", "graduation_year", "certifications"],
+            "experience": ["experience_details", "designation", "companies_worked_at", "years_of_experience"],
+            "projects": ["projects_detailed", "projects"],
+            "skills": ["skills", "skills_categorized", "languages"],
+            "achievements": ["achievements", "publications", "hobbies", "references"],
+            "activities": ["achievements", "hobbies"],
+        }
+
+        partials = []
+        for sec, fields in section_fields.items():
+            fields = [f for f in fields if f in selected]
+            if not fields:
+                continue
+            text_chunk = sections.get(sec) or resume_text
+            part_entity = extract_with_ollama(
+                text_chunk, model, host, fields,
+                finetuned=finetuned,
+                extracted_links=extracted_links if sec == "contact" else None,
+                truncation_limit=truncation_limit,
+            )
+
+            if part_entity is not None:
+                partials.append(part_entity.model_dump())
+
+        if partials:
+            merged = _merge_section_results(selected, partials)
+            if extracted_links and "other_links" in selected:
+                merged.setdefault("other_links", [])
+                for link in extracted_links:
+                    if link not in merged["other_links"]:
+                        merged["other_links"].append(link)
+            if "projects_detailed" in merged:
+                merged["projects_detailed"] = _map_project_links(merged["projects_detailed"], extracted_links)
+            entity = ResumeEntity(**merged)
+            if use_cache:
+                key = _cache_key(resume_text, provider, model, finetuned, selected, truncation_limit)
+                _save_to_cache(key, entity.model_dump())
+            return entity
+
     # call provider
-    if provider == "gemini-api":
-        entity = extract_with_gemini(
-            resume_text, api_key, model, selected,
-            finetuned=finetuned, extracted_links=extracted_links,
-            truncation_limit=truncation_limit
-        )
-    else:
-        entity = extract_with_ollama(
-            resume_text, model, host, selected,
-            finetuned=finetuned, extracted_links=extracted_links,
-            truncation_limit=truncation_limit
-        )
+    entity = extract_with_ollama(
+        resume_text, model, host, selected,
+        finetuned=finetuned, extracted_links=extracted_links,
+        truncation_limit=truncation_limit
+    )
+
+    if entity is not None and extracted_links and "other_links" in selected:
+        for link in extracted_links:
+            if link not in entity.other_links:
+                entity.other_links.append(link)
+    if entity is not None and extracted_links:
+        data = entity.model_dump()
+        if "projects_detailed" in data:
+            data["projects_detailed"] = _map_project_links(data["projects_detailed"], extracted_links)
+            entity = ResumeEntity(**data)
 
     # save to cache
     if entity is not None and use_cache:
-        key = _cache_key(resume_text, provider, model, finetuned, selected)
+        key = _cache_key(resume_text, provider, model, finetuned, selected, truncation_limit)
         _save_to_cache(key, entity.model_dump())
 
     return entity
