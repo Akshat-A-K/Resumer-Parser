@@ -137,8 +137,73 @@ def normalize(text: str) -> str:
     return text
 
 
+def _normalize_numeric_string(value: str) -> str:
+    m = re.fullmatch(r"\s*(\d+)\.0+\s*", value)
+    if m:
+        return m.group(1)
+    return value.strip()
+
+
+def _normalize_date_string(value: str) -> str:
+    text = value.strip()
+    if not text:
+        return text
+
+    if re.fullmatch(r"\d{4}", text):
+        return text
+
+    m = re.fullmatch(r"(\d{4})[-/](\d{1,2})", text)
+    if m:
+        year, month = m.group(1), m.group(2).zfill(2)
+        return f"{year}-{month}"
+
+    m = re.fullmatch(r"(\d{1,2})[-/](\d{4})", text)
+    if m:
+        month, year = m.group(1).zfill(2), m.group(2)
+        return f"{year}-{month}"
+
+    month_map = {
+        "jan": "01", "january": "01",
+        "feb": "02", "february": "02",
+        "mar": "03", "march": "03",
+        "apr": "04", "april": "04",
+        "may": "05",
+        "jun": "06", "june": "06",
+        "jul": "07", "july": "07",
+        "aug": "08", "august": "08",
+        "sep": "09", "sept": "09", "september": "09",
+        "oct": "10", "october": "10",
+        "nov": "11", "november": "11",
+        "dec": "12", "december": "12",
+    }
+
+    m = re.fullmatch(r"([A-Za-z]+)\s+(\d{4})", text)
+    if m:
+        month = month_map.get(m.group(1).lower())
+        if month:
+            return f"{m.group(2)}-{month}"
+
+    m = re.fullmatch(r"(\d{4})\s+([A-Za-z]+)", text)
+    if m:
+        month = month_map.get(m.group(2).lower())
+        if month:
+            return f"{m.group(1)}-{month}"
+
+    return text
+
+
+def _normalize_for_eval(text: str) -> str:
+    if not text:
+        return ""
+    text = str(text).strip()
+    text = _normalize_numeric_string(text)
+    if "date" in text or re.search(r"\b\d{4}\b", text):
+        text = _normalize_date_string(text)
+    return normalize(text)
+
+
 def exact_match(pred: str, gold: str) -> float:
-    return 1.0 if normalize(pred) == normalize(gold) else 0.0
+    return 1.0 if _normalize_for_eval(pred) == _normalize_for_eval(gold) else 0.0
 
 
 def fuzzy_score(pred: str, gold: str) -> float:
@@ -146,13 +211,13 @@ def fuzzy_score(pred: str, gold: str) -> float:
         return 1.0
     if not pred or not gold:
         return 0.0
-    return SequenceMatcher(None, normalize(pred), normalize(gold)).ratio()
+    return SequenceMatcher(None, _normalize_for_eval(pred), _normalize_for_eval(gold)).ratio()
 
 
 def token_prf(pred: str, gold: str) -> Tuple[float, float, float]:
     # token level precision recall f1
-    p_tok = set(normalize(pred).split())
-    g_tok = set(normalize(gold).split())
+    p_tok = set(_normalize_for_eval(pred).split())
+    g_tok = set(_normalize_for_eval(gold).split())
 
     if not p_tok and not g_tok:
         return 1.0, 1.0, 1.0
@@ -193,8 +258,8 @@ def set_prf(pred_list, gold_list, threshold=0.75):
     if not gold_list:
         return 0.0, 0.0, 0.0
 
-    pred_n = [normalize(p) for p in pred_list]
-    gold_n = [normalize(g) for g in gold_list]
+    pred_n = [_normalize_for_eval(p) for p in pred_list]
+    gold_n = [_normalize_for_eval(g) for g in gold_list]
 
     matched_pred = 0
     matched_gold: set = set()
@@ -239,8 +304,8 @@ def evaluate_single(pred: ResumeEntity, gold: ResumeEntity) -> Dict[str, dict]:
         pl = getattr(pred, field, None) or []
         gl = getattr(gold, field, None) or []
         p, r, f1 = set_prf(pl, gl)
-        ps = {normalize(x) for x in pl}
-        gs = {normalize(x) for x in gl}
+        ps = {_normalize_for_eval(x) for x in pl}
+        gs = {_normalize_for_eval(x) for x in gl}
         jac = jaccard(ps, gs)
         results[field] = dict(
             precision=p, recall=r, f1=f1, jaccard=jac,

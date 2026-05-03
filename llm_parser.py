@@ -407,6 +407,60 @@ def _clean_payload(data: dict, selected_fields: list[str]) -> dict:
     """Normalize extracted data to match schema types."""
     out = {}
 
+    def _normalize_numeric_string(value: str) -> str:
+        m = re.fullmatch(r"\s*(\d+)\.0+\s*", value)
+        if m:
+            return m.group(1)
+        return value.strip()
+
+    def _normalize_date_string(value: str) -> str:
+        text = value.strip()
+        if not text:
+            return text
+
+        year_match = re.fullmatch(r"\d{4}", text)
+        if year_match:
+            return text
+
+        m = re.fullmatch(r"(\d{4})[-/](\d{1,2})", text)
+        if m:
+            year, month = m.group(1), m.group(2).zfill(2)
+            return f"{year}-{month}"
+
+        m = re.fullmatch(r"(\d{1,2})[-/](\d{4})", text)
+        if m:
+            month, year = m.group(1).zfill(2), m.group(2)
+            return f"{year}-{month}"
+
+        month_map = {
+            "jan": "01", "january": "01",
+            "feb": "02", "february": "02",
+            "mar": "03", "march": "03",
+            "apr": "04", "april": "04",
+            "may": "05",
+            "jun": "06", "june": "06",
+            "jul": "07", "july": "07",
+            "aug": "08", "august": "08",
+            "sep": "09", "sept": "09", "september": "09",
+            "oct": "10", "october": "10",
+            "nov": "11", "november": "11",
+            "dec": "12", "december": "12",
+        }
+
+        m = re.fullmatch(r"([A-Za-z]+)\s+(\d{4})", text)
+        if m:
+            month = month_map.get(m.group(1).lower())
+            if month:
+                return f"{m.group(2)}-{month}"
+
+        m = re.fullmatch(r"(\d{4})\s+([A-Za-z]+)", text)
+        if m:
+            month = month_map.get(m.group(2).lower())
+            if month:
+                return f"{m.group(1)}-{month}"
+
+        return text
+
     for field in LIST_FIELDS:
         if field not in selected_fields:
             out[field] = []
@@ -458,6 +512,35 @@ def _clean_payload(data: dict, selected_fields: list[str]) -> dict:
     for field in STRUCTURED_FIELDS:
         if field in selected_fields and field in data:
             out[field] = data[field]
+
+    for field in STRUCTURED_FIELDS:
+        entries = out.get(field)
+        if not isinstance(entries, list):
+            continue
+        fixed_entries = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                fixed_entries.append(entry)
+                continue
+            updated = {}
+            for k, v in entry.items():
+                if not isinstance(k, str):
+                    continue
+                if v is None:
+                    updated[k] = None
+                    continue
+                if isinstance(v, (list, dict)):
+                    updated[k] = v
+                    continue
+                if isinstance(v, (int, float)):
+                    v = str(v)
+                if isinstance(v, str):
+                    v = _normalize_numeric_string(v)
+                    if "date" in k or "year" in k:
+                        v = _normalize_date_string(v)
+                    updated[k] = v
+            fixed_entries.append(updated)
+        out[field] = fixed_entries
 
     return out
 
@@ -518,13 +601,13 @@ def extract_with_ollama(
         template = _build_json_template(selected_fields)
         endpoint = host.rstrip("/") + "/api/chat"
         logger.info(f"Calling Ollama at {endpoint} with model {model_name}")
-        # adapt generation options for faster response
+        # adapt generation options while allowing enough tokens for JSON
         if truncation_limit <= 6000:
-            num_predict = 256
-            num_ctx = 1024
-        else:
             num_predict = 512
             num_ctx = 2048
+        else:
+            num_predict = 1024
+            num_ctx = 4096
 
         # allow long runs for large inputs/models
         timeout_secs = 600
@@ -600,17 +683,18 @@ def extract_with_ollama(
         logger.info("Ollama raw response length: %s", len(text))
         parsed = _extract_json_object(text)
         if not parsed:
-            # retry once with a stricter prompt to force JSON only
+            # retry once with a stricter prompt and higher num_predict to avoid truncation
             retry_prompt = (
                 prompt
-                                + "\n\nReturn ONLY a valid JSON object. No extra text, no markdown, no explanation."
-                                    " Use ONLY the schema keys. Do not fabricate values."
-                                + f"\n\nUse this exact template and fill values only:\n{template}"
+                + "\n\nReturn ONLY a valid JSON object. No extra text, no markdown, no explanation."
+                  " Use ONLY the schema keys. Do not fabricate values."
+                + f"\n\nUse this exact template and fill values only:\n{template}"
             )
             payload["messages"] = [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": retry_prompt},
             ]
+            payload["options"]["num_predict"] = max(num_predict * 2, 1024)
             try:
                 response = requests.post(endpoint, json=payload, timeout=timeout_secs)
                 response.raise_for_status()

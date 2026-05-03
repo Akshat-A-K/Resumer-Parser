@@ -67,3 +67,4 @@ cache/
 *.onnx
 *.bin
 *.safetensors
+results/
