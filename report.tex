@@ -1,21 +1,29 @@
 \documentclass[11pt,a4paper]{article}
-\usepackage[margin=1in]{geometry}
+\usepackage[margin=0.8in]{geometry}
 \usepackage{setspace}
 \usepackage{booktabs}
 \usepackage{array}
 \usepackage{longtable}
 \usepackage{titlesec}
 \usepackage{url}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{caption}
 \titleformat{\section}{\large\bfseries}{\thesection.}{0.5em}{}
 \titleformat{\subsection}{\normalsize\bfseries}{\thesubsection.}{0.5em}{}
-\setstretch{1.1}
+\setstretch{1.05}
+\renewcommand{\arraystretch}{0.95}
+\captionsetup{font=footnotesize}
+\setlength{\textfloatsep}{8pt}
+\setlength{\floatsep}{6pt}
+\setlength{\intextsep}{6pt}
 
 \begin{document}
 
 \begin{center}
 {\LARGE Smart Document Parser: Resume Entity Extraction}\\[6pt]
 {\large Project Report (Assignment 3)}\\[6pt]
-{\normalsize GitHub Repo: https://github.com/Akshat-A-K/Resumer-Parser}
+{\normalsize GitHub Repo: \url{https://github.com/Akshat-A-K/Resumer-Parser}}
 \end{center}
 
 \section{Abstract}
@@ -172,54 +180,51 @@ Observations in simple words:
 We built a working resume parser with a Streamlit app, and we also tested a prompt-based fine-tuning approach. The ollama-basic approach is simpler and stable. The prompt-based-fine-tuning approach gives slightly better macro scores on the same sample size, but takes more time. For future work, we should run larger evaluations, improve skill normalization, and try a larger model for better accuracy.
 
 \section{Screenshots}
-Below we include two key screenshots from the Streamlit app. These will be added in a two-column layout.
+Below we include the evaluation view and two stacked views from Parse One Resume.
 
-\begin{center}
-\begin{minipage}[t]{0.48\textwidth}
+\begin{figure}[H]
 \centering
-\fbox{\parbox[c][4cm][c]{0.9\textwidth}{\centering Screenshot 1 placeholder}}
-\\[4pt]
-\small Parse One Resume mode
-\end{minipage}
-\hfill
-\begin{minipage}[t]{0.48\textwidth}
-\centering
-\fbox{\parbox[c][4cm][c]{0.9\textwidth}{\centering Screenshot 2 placeholder}}
-\\[4pt]
-\small Evaluate Quality mode
-\end{minipage}
-\end{center}
+\includegraphics[width=0.75\textwidth]{image.png}
+\\[2pt]
+\footnotesize Evaluate Quality mode (section-wise prompt evaluation)
+\\[6pt]
+\includegraphics[width=0.75\textwidth]{image3.png}
+\\[2pt]
+\footnotesize Parse One Resume: field selection and upload
+\\[6pt]
+\includegraphics[width=0.75\textwidth]{image2.png}
+\\[2pt]
+\footnotesize Parse One Resume: structured output and editable fields
+\end{figure}
 
-\newpage
 
-\section{References}
 \begin{thebibliography}{9}
 \bibitem{dataset}
-Resume Entities for NER Dataset, Kaggle.\newline
+Dataturks. Resume Entities for NER. Kaggle, 2019.\newline
 \url{https://kaggle.com/datasets/dataturks/resume-entities-for-ner}
 
 \bibitem{streamlit}
-Streamlit Documentation.\newline
+Streamlit Team. Streamlit Documentation.\newline
 \url{https://docs.streamlit.io}
 
 \bibitem{ollama}
-Ollama Documentation.\newline
+Ollama Team. Ollama Documentation.\newline
 \url{https://ollama.ai}
 
 \bibitem{llama32}
-Llama 3.2 Model Card, Meta AI.\newline
+Meta AI. Llama 3.2 Model Card.\newline
 \url{https://ai.meta.com/llama/}
 
 \bibitem{pymupdf}
-PyMuPDF Documentation.\newline
+Artifex Software. PyMuPDF Documentation.\newline
 \url{https://pymupdf.readthedocs.io}
 
 \bibitem{pydantic}
-Pydantic Documentation.\newline
+Samuel Colvin et al. Pydantic Documentation.\newline
 \url{https://docs.pydantic.dev}
 
 \bibitem{easyocr}
-EasyOCR GitHub Repository.\newline
+JaidedAI. EasyOCR: Ready-to-Use OCR with Deep Learning. GitHub Repository.\newline
 \url{https://github.com/JaidedAI/EasyOCR}
 \end{thebibliography}
 
