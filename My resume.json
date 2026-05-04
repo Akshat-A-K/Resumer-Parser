@@ -1,0 +1,144 @@
+{
+  "name": "Akshat Kotadia",
+  "email": "mailto:kotadiaakshat2003@gmail.com",
+  "phone": "+91 9737259930",
+  "location": null,
+  "linkedin": "https://www.linkedin.com/in/akshat-kotadia-32b2b6222/",
+  "github": "https://github.com/Akshat-A-K/",
+  "portfolio": "https://akshat-a-k.github.io/My-Portfolio/",
+  "twitter": null,
+  "other_links": [
+    "mailto:kotadiaakshat2003@gmail.com",
+    "LinkedIn Profile: https://www.linkedin.com/in/akshat-kotadia-32b2b6222/",
+    "GitHub Profile: https://github.com/Akshat-A-K/"
+  ],
+  "designation": [
+    "Software Developer Intern",
+    "Software Developer Intern"
+  ],
+  "companies_worked_at": [
+    "Iolite Softwares Pvt. Ltd., Ahmedabad",
+    "Solvemate Tech Pte Ltd, Ahmedabad"
+  ],
+  "skills": [
+    "Backend: Node.js, Express.js, ASP.NET, Python - Flask",
+    "Frontend: React.js, React Native, Angular.js",
+    "Databases: MongoDB, MySQL, MS SQL Server, DynamoDB",
+    "Tools: Docker, Redis, RabbitMQ, AWS, Distributed Systems"
+  ],
+  "years_of_experience": null,
+  "summary": null,
+  "college_name": [
+    "International Institute of Information Technology",
+    "Institute of Technology, Nirma University"
+  ],
+  "degree": [
+    "M.Tech in Computer Science and Engineering",
+    "B.Tech in Computer Science and Engineering"
+  ],
+  "graduation_year": "Present",
+  "certifications": [],
+  "projects": [
+    "Scalable Interview Platform",
+    "Distributed Railway Booking System",
+    "Peer-to-Peer File Sharing System"
+  ],
+  "languages": [
+    "C",
+    "C++",
+    "Python",
+    "Java",
+    "JavaScript"
+  ],
+  "achievements": [
+    "{'CategoryName': 'GATE CS/IT', 'Score': '752'}",
+    "{'CategoryName': 'PGEE', 'Rank': '10'}",
+    "{'CategoryName': 'Student Placement Coordinator', 'Description': 'Managed end-to-end internship and placement processes for 500+ students; coordinated between recruiters and candidates.'}",
+    "{'CategoryName': 'Core Committee Member & Social Media Head, CSI Nirma', 'Description': 'Organized HackNUThon 4 & 5 and CUBIX 4 & 5; designed coding problems for events.'}",
+    "{'CategoryName': 'Mentee, Amazon ML Summer School', 'Description': 'Selected among top students for intensive ML training covering theory and real-world applications.'}"
+  ],
+  "publications": [],
+  "hobbies": [
+    "Competitive Programming"
+  ],
+  "references": [],
+  "education_details": [
+    {
+      "institution": "International Institute of Information Technology",
+      "degree": "M.Tech in Computer Science and Engineering",
+      "field_of_study": "Computer Science and Engineering",
+      "cgpa": "9.33/10",
+      "location": "Hyderabad, India",
+      "start_year": "Jul 2025",
+      "end_year": "Present"
+    },
+    {
+      "institution": "Institute of Technology, Nirma University",
+      "degree": "B.Tech in Computer Science and Engineering",
+      "field_of_study": "Computer Science and Engineering",
+      "cgpa": "8.36/10",
+      "location": "Ahmedabad, India",
+      "start_year": "Oct 2021",
+      "end_year": "May 2025"
+    }
+  ],
+  "experience_details": [
+    {
+      "company": "Iolite Softwares Pvt. Ltd., Ahmedabad",
+      "role": "Software Developer Intern",
+      "location": "Ahmedabad",
+      "start_date": "Jan 2025",
+      "end_date": "Jun 2025",
+      "description": "Built and optimized backend services for an enterprise-scale IP Management System using .NET 9 and MS SQL",
+      "tech_stack": []
+    },
+    {
+      "company": "Solvemate Tech Pte Ltd, Ahmedabad",
+      "role": "Software Developer Intern",
+      "location": "Ahmedabad",
+      "start_date": "May 2024",
+      "end_date": "Jul 2024",
+      "description": "Developed scalable backend features in a MERN stack app with OAuth 2.0 authentication and analytics tracking",
+      "tech_stack": []
+    }
+  ],
+  "projects_detailed": [
+    {
+      "name": "Scalable Interview Platform",
+      "tech_stack": [
+        "React",
+        "Node.js",
+        "Redis",
+        "BullMQ",
+        "MongoDB",
+        "Docker"
+      ],
+      "description": null,
+      "link": "GitHub",
+      "date": null
+    },
+    {
+      "name": "Distributed Railway Booking System",
+      "tech_stack": [
+        "Kong",
+        "Docker",
+        "RabbitMQ",
+        "Node.js"
+      ],
+      "description": null,
+      "link": null,
+      "date": null
+    },
+    {
+      "name": "Peer-to-Peer File Sharing System",
+      "tech_stack": [
+        "C++",
+        "Networking",
+        "Multithreading"
+      ],
+      "description": null,
+      "link": "GitHub",
+      "date": null
+    }
+  ]
+}
