@@ -215,7 +215,9 @@ def main() -> None:
 
     model_path = Path(args.spacy_model)
     if not model_path.exists():
-        raise FileNotFoundError(f"spaCy model not found: {model_path}. Run finetune_train.py first.")
+        raise FileNotFoundError(
+            f"spaCy model not found: {model_path}. Train or supply a spaCy NER model first."
+        )
 
     nlp = spacy.load(model_path)
 

@@ -1,0 +1,95 @@
+{
+  "per_field": {
+    "name": {
+      "precision": 0.9,
+      "recall": 0.9,
+      "f1": 0.9,
+      "exact_match": 0.9,
+      "fuzzy_match": 0.9,
+      "support": 9,
+      "total_samples": 10
+    },
+    "graduation_year": {
+      "precision": 0.4,
+      "recall": 0.4,
+      "f1": 0.4,
+      "exact_match": 0.4,
+      "fuzzy_match": 0.4,
+      "support": 7,
+      "total_samples": 10
+    },
+    "years_of_experience": {
+      "precision": 0.5,
+      "recall": 0.5,
+      "f1": 0.5,
+      "exact_match": 0.5,
+      "fuzzy_match": 0.5,
+      "support": 2,
+      "total_samples": 10
+    },
+    "email": {
+      "precision": 0.7,
+      "recall": 0.6,
+      "f1": 0.6333333333333333,
+      "exact_match": 0.5,
+      "fuzzy_match": 0.76739265672599,
+      "support": 8,
+      "total_samples": 10
+    },
+    "location": {
+      "precision": 0.45,
+      "recall": 0.8,
+      "f1": 0.5633333333333332,
+      "exact_match": 0.1,
+      "fuzzy_match": 0.5460707651481645,
+      "support": 8,
+      "total_samples": 10
+    },
+    "degree": {
+      "precision": 0.8,
+      "recall": 0.625,
+      "f1": 0.6857142857142857,
+      "jaccard": 0.625,
+      "support": 8,
+      "total_samples": 10
+    },
+    "designation": {
+      "precision": 0.7,
+      "recall": 0.65,
+      "f1": 0.6666666666666667,
+      "jaccard": 0.45,
+      "support": 8,
+      "total_samples": 10
+    },
+    "companies_worked_at": {
+      "precision": 0.24166666666666664,
+      "recall": 0.5,
+      "f1": 0.30666666666666664,
+      "jaccard": 0.24166666666666664,
+      "support": 8,
+      "total_samples": 10
+    },
+    "skills": {
+      "precision": 0.15,
+      "recall": 0.2,
+      "f1": 0.16666666666666666,
+      "jaccard": 0.15,
+      "support": 10,
+      "total_samples": 10
+    },
+    "college_name": {
+      "precision": 0.8699999999999999,
+      "recall": 0.7083333333333333,
+      "f1": 0.7388888888888888,
+      "jaccard": 0.5,
+      "support": 10,
+      "total_samples": 10
+    }
+  },
+  "macro_avg": {
+    "precision": 0.5711666666666667,
+    "recall": 0.5883333333333334,
+    "f1": 0.5561269841269841
+  },
+  "num_samples": 10
+}

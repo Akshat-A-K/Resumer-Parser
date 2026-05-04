@@ -143,10 +143,24 @@ def extract_with_ollama(
 
 def extract_entities(
     resume_text: str,
+    provider: Optional[str] = None,
     ollama_model: Optional[str] = None,
     ollama_host: Optional[str] = None,
+    gemini_api_key: Optional[str] = None,
+    gemini_model: Optional[str] = None,
     selected_fields: Optional[list[str]] = None,
+    finetuned: bool = False,
+    extracted_links: Optional[list[str]] = None,
+    use_cache: bool = False,
+    truncation_limit: Optional[int] = None,
 ) -> Optional[ResumeEntity]:
+    """Extract entities with the local Ollama model.
+
+    Extra parameters are accepted for compatibility with other branches but are
+    intentionally ignored to preserve the parsing approach in this branch.
+    """
+    _ = provider, gemini_api_key, gemini_model, finetuned, extracted_links, use_cache, truncation_limit
+
     ollama_model = ollama_model or os.getenv("OLLAMA_MODEL", "llama3.2:3b")
     ollama_host = ollama_host or os.getenv("OLLAMA_HOST", "http://localhost:11434")
     selected = _normalize_selected_fields(selected_fields)

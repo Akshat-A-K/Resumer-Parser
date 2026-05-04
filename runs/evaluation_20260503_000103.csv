@@ -1,0 +1,12 @@
+Entity Type,Precision,Recall,F1 Score,Exact Match,Fuzzy Match,Support,Jaccard
+Name,0.9,0.9,0.9,0.9,0.9,9,
+Graduation Year,0.4,0.4,0.4,0.4,0.4,7,
+Years Of Experience,0.5,0.5,0.5,0.5,0.5,2,
+Email,0.7,0.6,0.6333,0.5,0.7674,8,
+Location,0.45,0.8,0.5633,0.1,0.5461,8,
+Degree,0.8,0.625,0.6857,,,8,0.625
+Designation,0.7,0.65,0.6667,,,8,0.45
+Companies Worked At,0.2417,0.5,0.3067,,,8,0.2417
+Skills,0.15,0.2,0.1667,,,10,0.15
+College Name,0.87,0.7083,0.7389,,,10,0.5
+MACRO AVG,0.5712,0.5883,0.5561,,,10,

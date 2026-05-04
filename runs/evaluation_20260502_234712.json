@@ -1,0 +1,95 @@
+{
+  "per_field": {
+    "name": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "exact_match": 1.0,
+      "fuzzy_match": 1.0,
+      "support": 1,
+      "total_samples": 1
+    },
+    "graduation_year": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "exact_match": 0.0,
+      "fuzzy_match": 0.0,
+      "support": 1,
+      "total_samples": 1
+    },
+    "years_of_experience": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "exact_match": 0.0,
+      "fuzzy_match": 0.0,
+      "support": 0,
+      "total_samples": 1
+    },
+    "email": {
+      "precision": 1.0,
+      "recall": 0.5,
+      "f1": 0.6666666666666666,
+      "exact_match": 0.0,
+      "fuzzy_match": 0.9135802469135802,
+      "support": 1,
+      "total_samples": 1
+    },
+    "location": {
+      "precision": 0.5,
+      "recall": 1.0,
+      "f1": 0.6666666666666666,
+      "exact_match": 0.0,
+      "fuzzy_match": 0.6428571428571429,
+      "support": 1,
+      "total_samples": 1
+    },
+    "degree": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "jaccard": 0.0,
+      "support": 0,
+      "total_samples": 1
+    },
+    "designation": {
+      "precision": 1.0,
+      "recall": 0.5,
+      "f1": 0.6666666666666666,
+      "jaccard": 0.5,
+      "support": 1,
+      "total_samples": 1
+    },
+    "companies_worked_at": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "jaccard": 0.0,
+      "support": 1,
+      "total_samples": 1
+    },
+    "skills": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "jaccard": 0.0,
+      "support": 1,
+      "total_samples": 1
+    },
+    "college_name": {
+      "precision": 1.0,
+      "recall": 0.3333333333333333,
+      "f1": 0.5,
+      "jaccard": 0.0,
+      "support": 1,
+      "total_samples": 1
+    }
+  },
+  "macro_avg": {
+    "precision": 0.45,
+    "recall": 0.33333333333333337,
+    "f1": 0.35
+  },
+  "num_samples": 1
+}

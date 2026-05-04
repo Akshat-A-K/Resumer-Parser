@@ -4,8 +4,8 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -14,7 +14,11 @@ from dotenv import load_dotenv
 
 from evaluator import annotations_to_entity, evaluate_batch, load_ground_truth, results_to_dataframe
 from llm_parser import extract_entities
-from ocr_extractor import extract_text_from_bytes, extract_text_from_image_bytes
+from ocr_extractor import (
+    extract_text_and_links_from_bytes,
+    extract_text_from_image_bytes,
+    extract_urls_from_text,
+)
 from schema import FIELD_SPECS, LIST_FIELDS, ResumeEntity, default_selected_fields
 
 load_dotenv()
@@ -23,15 +27,17 @@ st.set_page_config(page_title="T13.1 Resume Parser", page_icon="📄", layout="w
 st.title("T13.1 - Smart Document Parser")
 
 
-def parse_uploaded_file(uploaded_file) -> str:
+def parse_uploaded_file(uploaded_file) -> tuple[str, list[str]]:
     suffix = Path(uploaded_file.name).suffix.lower()
     payload = uploaded_file.read()
 
     if suffix == ".pdf":
-        return extract_text_from_bytes(payload)
+        return extract_text_and_links_from_bytes(payload)
     if suffix in {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp"}:
-        return extract_text_from_image_bytes(payload)
-    return "[ERROR: Unsupported file format]"
+        text = extract_text_from_image_bytes(payload)
+        links = extract_urls_from_text(text) if text else []
+        return text, links
+    return "[ERROR: Unsupported file format]", []
 
 
 def entity_to_row(entity: ResumeEntity, selected_fields: list[str]) -> dict:
@@ -97,7 +103,7 @@ def model_option_label(model_name: str, provider_name: str) -> str:
     low = name.lower()
 
     if provider_name == "ollama-local":
-        if "resume-parser" in low or "finetune" in low or "fine-tune" in low:
+        if "resume-parser" in low:
             return f"{name}  (Recommended)"
 
     return name
@@ -105,11 +111,7 @@ def model_option_label(model_name: str, provider_name: str) -> str:
 
 with st.sidebar:
     st.header("Workflow")
-    mode = st.radio(
-        "Choose task",
-        ["Parse One Resume", "Evaluate Quality", "Fine-tune Models"],
-        index=0,
-    )
+    mode = st.radio("Choose task", ["Parse One Resume", "Evaluate Quality"], index=0)
 
     st.markdown("---")
     st.header("Model Provider")
@@ -119,50 +121,12 @@ with st.sidebar:
 
     ollama_model_options = get_ollama_model_options(ollama_model)
 
-    st.caption("Local mode only (ollama-local).")
-    ollama_host = st.text_input("OLLAMA_HOST", value=ollama_host)
     ollama_model = st.selectbox(
         "OLLAMA_MODEL",
         options=ollama_model_options,
         index=_selected_index(ollama_model_options, ollama_model),
         format_func=lambda m: model_option_label(m, "ollama-local"),
     )
-
-    with st.expander("Advanced provider settings", expanded=False):
-        ollama_host = st.text_input("OLLAMA_HOST (advanced)", value=ollama_host)
-        ollama_model = st.selectbox(
-            "OLLAMA_MODEL (advanced)",
-            options=ollama_model_options,
-            index=_selected_index(ollama_model_options, ollama_model),
-            format_func=lambda m: model_option_label(m, "ollama-local"),
-        )
-
-
-def run_python_script(script_name: str, args: list[str] | None = None) -> tuple[bool, str]:
-    """Run project script with current Python environment and capture output."""
-    script_path = Path(script_name)
-    if not script_path.exists():
-        return False, f"Script not found: {script_name}"
-
-    result = subprocess.run(
-        [sys.executable, script_name] + (args or []),
-        capture_output=True,
-        text=True,
-        cwd=Path(__file__).resolve().parent,
-    )
-    combined = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
-    return result.returncode == 0, combined.strip()
-
-
-def run_command(args: list[str]) -> tuple[bool, str]:
-    result = subprocess.run(
-        args,
-        capture_output=True,
-        text=True,
-        cwd=Path(__file__).resolve().parent,
-    )
-    combined = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
-    return result.returncode == 0, combined.strip()
 
 if mode == "Parse One Resume":
     st.subheader("Parse One Resume")
@@ -184,7 +148,7 @@ if mode == "Parse One Resume":
 
     if uploaded is not None:
         with st.spinner("Extracting text..."):
-            text = parse_uploaded_file(uploaded)
+            text, extracted_links = parse_uploaded_file(uploaded)
 
         if not text or text.startswith("[ERROR"):
             st.error(text or "No text extracted")
@@ -193,13 +157,21 @@ if mode == "Parse One Resume":
         with st.expander("Extracted text preview"):
             st.text_area("Text", text, height=220)
 
+        if extracted_links:
+            with st.expander(f"Extracted Links ({len(extracted_links)})"):
+                for link in extracted_links:
+                    st.markdown(f"- {link}")
+
         if st.button("Step 3: Run Extraction", type="primary"):
             with st.spinner("Running model..."):
                 entity = extract_entities(
                     text,
+                    provider=provider,
                     ollama_model=ollama_model,
                     ollama_host=ollama_host,
                     selected_fields=selected_fields,
+                    extracted_links=extracted_links,
+                    truncation_limit=len(text),
                 )
 
             if entity is None:
@@ -260,7 +232,7 @@ elif mode == "Evaluate Quality":
         st.error("Entity Recognition in Resumes.json not found")
         st.stop()
 
-    samples = st.slider("Samples", min_value=5, max_value=220, value=20, step=5)
+    samples = st.slider("Samples", min_value=1, max_value=10, value=5, step=1)
 
     if st.button("Run Evaluation", type="primary"):
         raw = load_ground_truth(str(gt_path))[:samples]
@@ -295,6 +267,14 @@ elif mode == "Evaluate Quality":
         metrics = evaluate_batch(predictions, ground_truths)
         df_metrics = results_to_dataframe(metrics)
 
+        runs_dir = Path("runs")
+        runs_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_path = runs_dir / f"evaluation_{stamp}.json"
+        df_path = runs_dir / f"evaluation_{stamp}.csv"
+        report_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+        df_metrics.to_csv(df_path, index=False)
+
         macro = metrics["macro_avg"]
         c1, c2, c3 = st.columns(3)
         c1.metric("Macro Precision", f"{macro['precision']:.3f}")
@@ -302,6 +282,8 @@ elif mode == "Evaluate Quality":
         c3.metric("Macro F1", f"{macro['f1']:.3f}")
 
         st.dataframe(df_metrics, use_container_width=True)
+        st.info(f"Saved evaluation report to: {report_path}")
+        st.info(f"Saved evaluation table to: {df_path}")
         st.download_button(
             "Download evaluation report",
             data=json.dumps(metrics, indent=2),
@@ -309,100 +291,4 @@ elif mode == "Evaluate Quality":
             mime="application/json",
         )
 
-else:
-    st.subheader("Fine-tune Models")
-    st.caption("Use one tab at a time based on your goal: local spaCy model or local Ollama profile.")
-
-    def show_step(script_name: str, title: str) -> bool:
-        with st.spinner(f"Running {script_name}..."):
-            ok, output = run_python_script(script_name)
-        if ok:
-            st.success(f"{title} completed")
-            if output:
-                st.text_area(f"{title} output", output, height=180)
-        else:
-            st.error(f"{title} failed")
-            if output:
-                st.text_area(f"{title} error output", output, height=220)
-        return ok
-
-    tab_local, tab_ollama = st.tabs(["Local spaCy NER", "Local Ollama Profile"])
-
-    with tab_local:
-        st.markdown("### Local spaCy Pipeline")
-        st.write("1. Prepare split -> 2. Train -> 3. Evaluate")
-
-        with st.expander("One-time setup (if needed)", expanded=False):
-            s1, s2 = st.columns(2)
-            setup_deps = s1.button("Install Training Dependencies", key="setup_deps")
-            setup_model = s2.button("Download en_core_web_sm", key="setup_model")
-
-            if setup_deps:
-                with st.spinner("Installing dependencies from requirements.txt..."):
-                    ok, output = run_command([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
-                if ok:
-                    st.success("Dependencies installed")
-                else:
-                    st.error("Dependency installation failed")
-                if output:
-                    st.text_area("Dependency setup output", output, height=220, key="deps_output")
-
-            if setup_model:
-                with st.spinner("Downloading en_core_web_sm..."):
-                    ok, output = run_command([sys.executable, "-m", "spacy", "download", "en_core_web_sm"])
-                if ok:
-                    st.success("en_core_web_sm downloaded")
-                else:
-                    st.error("Model download failed")
-                if output:
-                    st.text_area("Model setup output", output, height=220, key="model_output")
-
-        c1, c2, c3, c4 = st.columns(4)
-        run_prepare = c1.button("Prepare Split", type="primary", key="run_prepare")
-        run_train = c2.button("Train Model", key="run_train")
-        run_eval = c3.button("Evaluate Model", key="run_eval")
-        run_all = c4.button("Run All", key="run_all")
-
-        if run_prepare:
-            show_step("finetune_prepare.py", "Prepare split")
-
-        if run_train:
-            show_step("finetune_train.py", "Train model")
-
-        if run_eval:
-            show_step("finetune_evaluate.py", "Evaluate model")
-
-        if run_all:
-            ok_prepare = show_step("finetune_prepare.py", "Prepare split")
-            if ok_prepare:
-                ok_train = show_step("finetune_train.py", "Train model")
-                if ok_train:
-                    show_step("finetune_evaluate.py", "Evaluate model")
-
-    with tab_ollama:
-        st.markdown("### Local Llama Specialization")
-        st.caption("Creates a resume-focused local model profile from your base Ollama model.")
-        llama_base = st.selectbox(
-            "Ollama base model",
-            options=ollama_model_options,
-            index=_selected_index(ollama_model_options, ollama_model),
-            format_func=lambda m: model_option_label(m, "ollama-local"),
-            key="llama_base_model",
-        )
-        llama_new = st.text_input("New local model name", value="resume-parser-local")
-        run_llama_tune = st.button("Create Local Resume Llama Model", key="run_llama_tune")
-
-        if run_llama_tune:
-            with st.spinner("Creating local Ollama model..."):
-                ok, output = run_python_script(
-                    "llama_local_tune.py",
-                    ["--base-model", llama_base, "--new-model", llama_new],
-                )
-            if ok:
-                st.success(f"Created local model: {llama_new}")
-                st.info("Set provider = ollama-local and OLLAMA_MODEL to this new model.")
-            else:
-                st.error("Local llama specialization failed")
-            if output:
-                st.text_area("Local llama output", output, height=220, key="llama_output")
 
