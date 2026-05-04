@@ -30,6 +30,8 @@ Streamlit app for section-wise resume entity extraction and quick quality check.
    - PowerShell: `.\.venv\Scripts\Activate.ps1`
 3. Install deps:
    - `pip install -r requirements.txt`
+4. Download model:
+   - `ollama pull llama3.2`
 
 ## Run app
 
