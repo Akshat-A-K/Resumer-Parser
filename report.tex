@@ -24,11 +24,15 @@
 \begin{center}
 {\LARGE Smart Document Parser: Resume Entity Extraction}\\[6pt]
 {\large Project Report (Assignment 3)}\\[6pt]
-{\normalsize GitHub Repo: \href{https://github.com/Akshat-A-K/Resumer-Parser}{https://github.com/Akshat-A-K/Resumer-Parser}}
+{\normalsize GitHub Repo: \href{https://github.com/Akshat-A-K/Resumer-Parser}{https://github.com/Akshat-A-K/Resumer-Parser}}\\[4pt]
+{\normalsize Team: Akshat Kotadia (2025201005, akshat.kotadia@students.iiit.ac.in)\\
+Om Mehra (2025201008, om.mehra@students.iiit.ac.in)\\
+Ankit Chavda (2025201045, chavda.ankitbhai@students.iiit.ac.in)}
 \end{center}
 
 \section{Abstract}
-We built a resume parser that converts PDF or image resumes into clean JSON. The system uses OCR and PDF text extraction, and a local LLM (Ollama with Llama 3.2) to extract entities like name, email, skills, education, and experience. A Streamlit web app lets the user upload a file, review the output, edit it, and download the final JSON or CSV. We also created an evaluation mode that compares predictions with a labeled dataset and reports precision, recall, and F1 scores. This report explains the problem, dataset, method, and results for two approaches. The code is in the branches: ollama-basic and prompt-based-fine-tuning.
+We built a resume parser that converts PDF or image resumes into clean JSON. The system uses OCR and PDF text extraction, and a local LLM (Ollama with Llama 3.2) to extract entities like name, email, skills, education, and experience. A Streamlit web app lets the user upload a file, review the output, edit it, and download the final JSON or CSV. We also created an evaluation mode that compares predictions with a labeled dataset and reports precision, recall, and F1 scores. This report explains the problem, dataset, method, and results for two approaches. The code is in the branches: ollama-basic and prompt-based-fine-tuning. Both branches are considered in this submission.
+
 
 \section{Introduction}
 In hiring, companies receive many resumes for one job opening. Manually reading each resume and writing the details is slow. So we need an automated system that can read a resume and extract important data in a structured format. The assignment asks for a smart document parser, and we selected the resume parsing task. Our system is fully local and works without paid APIs.
@@ -78,8 +82,6 @@ Key points of this approach:
 \item Pandas for evaluation tables.
 \end{itemize}
 
-\newpage
-
 \section{Approach 2: Prompt-Based Fine-Tuning (prompt-based-fine-tuning)}
 This approach is in the branch prompt-based-fine-tuning. It focuses on stronger prompt engineering and structured extraction. We include it here for comparison.
 
@@ -92,6 +94,15 @@ Key ideas:
 \end{itemize}
 
 This method aims to improve list-heavy fields by reducing prompt noise and focusing on relevant text for each section.
+
+\section{Branch Comparison and Key Differences}
+\begin{itemize}
+\item prompt-based-fine-tuning has section-wise prompting and stronger JSON repair with retries.
+\item It adds a more detailed schema with structured lists for education, experience, and projects.
+\item It uses caching to speed up repeated extractions.
+\item ollama-basic is simpler and faster, with a single prompt for selected fields.
+\item Evaluation scripts and results are organized a bit differently in the two branches.
+\end{itemize}
 
 \section{Evaluation Methodology}
 We used the labeled dataset to measure accuracy. For string fields, we compute exact match, fuzzy match, and token-based precision/recall/F1. For list fields, we use set-based precision/recall/F1 with fuzzy matching and Jaccard similarity. We also report macro-averaged precision, recall, and F1 across all fields.

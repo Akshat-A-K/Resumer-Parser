@@ -22,6 +22,11 @@ Streamlit app for section-wise resume entity extraction and quick quality check.
 - Caching: results are cached by hash of (text + model + fields + truncation).
 - Evaluation: labeled data is mapped to schema fields and Precision/Recall/F1 is computed.
 
+## Branches and comparison
+
+- Branches used in submission: `ollama-basic` and `prompt-based-fine-tuning`.
+- Main differences: section-wise prompting + caching + structured schema are in prompt-based-fine-tuning, while ollama-basic is a simpler single-prompt pipeline.
+
 ## Setup
 
 1. Create venv:
