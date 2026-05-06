@@ -192,21 +192,132 @@ Observations in simple words:
 We built a working resume parser with a Streamlit app, and we also tested a prompt-based fine-tuning approach. The ollama-basic approach is simpler and stable. The prompt-based-fine-tuning approach gives slightly better macro scores on the same sample size, but takes more time. For future work, we should run larger evaluations, improve skill normalization, and try a larger model for better accuracy.
 
 \section{Screenshots}
-Below we include the evaluation view and two stacked views from Parse One Resume.
+All screenshots below are from the prompt-based fine-tuning implementation.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.75\textwidth]{image.png}
-\\[2pt]
-\footnotesize Evaluate Quality mode (section-wise prompt evaluation)
-\\[6pt]
-\includegraphics[width=0.75\textwidth]{image3.png}
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{image4.png}
 \\[2pt]
 \footnotesize Parse One Resume: field selection and upload
-\\[6pt]
-\includegraphics[width=0.75\textwidth]{image2.png}
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{image5.png}
 \\[2pt]
-\footnotesize Parse One Resume: structured output and editable fields
+\footnotesize Parse One Resume: field selector dropdown
+\end{minipage}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{image6.png}
+\\[2pt]
+\footnotesize Parse One Resume: extracted text and links preview
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{image7.png}
+\\[2pt]
+\footnotesize Parse One Resume: run extraction and status
+\end{minipage}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{image8.png}
+\\[2pt]
+\footnotesize Extraction complete: skills by category and tabs
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{image9.png}
+\\[2pt]
+\footnotesize Structured Data: education tab
+\end{minipage}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{image10.png}
+\\[2pt]
+\footnotesize Structured Data: experience tab
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{image11.png}
+\\[2pt]
+\footnotesize Structured Data: projects tab
+\end{minipage}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{image12.png}
+\\[2pt]
+\footnotesize Editable output: basic fields
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{image13.png}
+\\[2pt]
+\footnotesize Editable output: work and skills fields
+\end{minipage}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{image14.png}
+\\[2pt]
+\footnotesize Editable output: projects, languages, achievements
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{image15.png}
+\\[2pt]
+\footnotesize Editable output: publications, hobbies, skills by category
+\end{minipage}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{image16.png}
+\\[2pt]
+\footnotesize Final JSON output view and download
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{image17.png}
+\\[2pt]
+\footnotesize Evaluate Quality: run setup and progress
+\end{minipage}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{image18.png}
+\\[2pt]
+\footnotesize Evaluate Quality: results table
 \end{figure}
 
 
